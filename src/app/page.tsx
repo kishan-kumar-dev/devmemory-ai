@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState, useSyncExternalStore } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import CodingAgentChat from "@/components/agents/coding-agent-chat";
 import BugFixAgentChat from "@/components/agents/bug-fix-agent-chat";
@@ -14,107 +14,136 @@ type MemoryRecord = {
   agent_id?: string;
 };
 
-const navItems = [
-  { name: "Overview", icon: "◫" },
-  { name: "Projects", icon: "▣" },
-  { name: "AI Agents", icon: "✳" },
-  { name: "Shared Memory", icon: "◈" },
-  { name: "Knowledge Search", icon: "⌕" },
-  { name: "Decision Traces", icon: "⌇" },
+type AgentId = "coding-agent" | "bug-fix-agent" | "code-review-agent";
+
+type AgentFilter = "all" | AgentId;
+type MekoStatus = "checking" | "connected" | "error";
+
+const navigation = [
+  { label: "Overview", href: "#overview", icon: "◫" },
+  { label: "AI Agents", href: "#ai-agents", icon: "✳" },
+  { label: "Shared Memory", href: "#shared-memory", icon: "◈" },
+  { label: "Knowledge Search", href: "#knowledge-search", icon: "⌕" },
 ];
 
-const agents = [
+const agents: {
+  id: AgentId;
+  name: string;
+  description: string;
+  icon: string;
+  accent: string;
+}[] = [
   {
+    id: "coding-agent",
     name: "Coding Agent",
-    description: "Build features using shared project context.",
+    description: "Build features with reusable project context.",
     icon: "</>",
-    status: "Integrated",
+    accent: "cyan",
   },
   {
+    id: "bug-fix-agent",
     name: "Bug Fix Agent",
-    description:
-      "Analyze bugs and retrieve previous solutions using shared memory.",
-    icon: "🐛",
-    status: "Integrated",
+    description: "Find root causes and develop reliable fixes.",
+    icon: "⌘",
+    accent: "blue",
   },
   {
+    id: "code-review-agent",
     name: "Code Review Agent",
-    description:
-      "Review code for bugs, security issues, performance, and maintainability.",
+    description: "Improve code quality, security, and maintainability.",
     icon: "⌥",
-    status: "Integrated",
+    accent: "violet",
   },
 ];
 
-const subscribe = () => () => {};
+const agentNames: Record<string, string> = {
+  "coding-agent": "Coding Agent",
+  "bug-fix-agent": "Bug Fix Agent",
+  "code-review-agent": "Code Review Agent",
+  "devmemory-ai": "DevMemory Workspace",
+};
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
+function extractMemories(payload: unknown): MemoryRecord[] {
+  const results: MemoryRecord[] = [];
+  const seen = new Set<string>();
 
-function extractMemories(response: unknown): MemoryRecord[] {
-  const queue: unknown[] = [response];
-  const visited = new Set<unknown>();
+  function visit(value: unknown, depth = 0) {
+    if (depth > 8 || value == null) return;
 
-  while (queue.length > 0) {
-    const current = queue.shift();
+    if (typeof value === "string") {
+      const trimmed = value.trim();
 
-    if (current === undefined || visited.has(current)) continue;
-
-    visited.add(current);
-
-    if (typeof current === "string") {
-      try {
-        queue.push(JSON.parse(current));
-      } catch {
-        continue;
-      }
-
-      continue;
-    }
-
-    if (Array.isArray(current)) {
-      queue.push(...current);
-      continue;
-    }
-
-    if (!isRecord(current)) continue;
-
-    if (Array.isArray(current.results)) {
-      return current.results
-        .filter(
-          (item): item is Record<string, unknown> =>
-            isRecord(item) && typeof item.memory === "string",
-        )
-        .map((item) => ({
-          id: typeof item.id === "string" ? item.id : "Unknown ID",
-          memory: String(item.memory),
-          score: typeof item.score === "number" ? item.score : undefined,
-          created_at:
-            typeof item.created_at === "string" ? item.created_at : undefined,
-          agent_id:
-            typeof item.agent_id === "string" ? item.agent_id : undefined,
-        }));
-    }
-
-    if (current.structuredContent !== undefined) {
-      queue.push(current.structuredContent);
-    }
-
-    if (current.result !== undefined) {
-      queue.push(current.result);
-    }
-
-    if (Array.isArray(current.content)) {
-      for (const item of current.content) {
-        if (isRecord(item) && typeof item.text === "string") {
-          queue.push(item.text);
+      if (
+        (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+        (trimmed.startsWith("[") && trimmed.endsWith("]"))
+      ) {
+        try {
+          visit(JSON.parse(trimmed), depth + 1);
+        } catch {
+          // Ignore non-JSON strings.
         }
       }
+
+      return;
     }
+
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, depth + 1));
+      return;
+    }
+
+    if (typeof value !== "object") return;
+
+    const record = value as Record<string, unknown>;
+
+    const memoryText =
+      typeof record.memory === "string"
+        ? record.memory
+        : typeof record.text === "string" &&
+            (record.id || record.memory_id || record.agent_id)
+          ? record.text
+          : null;
+
+    if (memoryText) {
+      const id =
+        String(record.id ?? record.memory_id ?? "") || memoryText.slice(0, 100);
+
+      if (!seen.has(id)) {
+        seen.add(id);
+
+        results.push({
+          id,
+          memory: memoryText,
+          score: typeof record.score === "number" ? record.score : undefined,
+          created_at:
+            typeof record.created_at === "string"
+              ? record.created_at
+              : typeof record.createdAt === "string"
+                ? record.createdAt
+                : undefined,
+          agent_id:
+            typeof record.agent_id === "string" ? record.agent_id : undefined,
+        });
+      }
+    }
+
+    [
+      "memories",
+      "results",
+      "matches",
+      "data",
+      "items",
+      "records",
+      "content",
+    ].forEach((key) => {
+      if (record[key] !== undefined) {
+        visit(record[key], depth + 1);
+      }
+    });
   }
 
-  return [];
+  visit(payload);
+  return results;
 }
 
 function formatDate(date?: string) {
@@ -122,99 +151,78 @@ function formatDate(date?: string) {
 
   const parsed = new Date(date);
 
-  if (Number.isNaN(parsed.getTime())) return "Date unavailable";
+  if (Number.isNaN(parsed.getTime())) {
+    return "Date unavailable";
+  }
 
   return parsed.toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
 function getAgentName(agentId?: string) {
-  switch (agentId) {
-    case "coding-agent":
-      return "Coding Agent";
-    case "bug-fix-agent":
-      return "Bug Fix Agent";
-    case "code-review-agent":
-      return "Code Review Agent";
-    case "devmemory-ai":
-      return "DevMemory Workspace";
-    default:
-      return agentId || "Unknown Agent";
-  }
+  return agentId ? (agentNames[agentId] ?? "Shared Memory") : "Shared Memory";
 }
 
 export default function Home() {
-  const [activeNav, setActiveNav] = useState("Overview");
-
   const [memoryText, setMemoryText] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [memories, setMemories] = useState<MemoryRecord[]>([]);
+  const [memoryFilter, setMemoryFilter] = useState<AgentFilter>("all");
 
-  const [selectedMemoryAgent, setSelectedMemoryAgent] =
-    useState("devmemory-ai");
-
-  const [saving, setSaving] = useState(false);
-  const [searching, setSearching] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
 
   const [saveMessage, setSaveMessage] = useState("");
-  const [saveError, setSaveError] = useState("");
+  const [searchMessage, setSearchMessage] = useState("");
 
-  const [searchError, setSearchError] = useState("");
-  const [memories, setMemories] = useState<MemoryRecord[]>([]);
-  const [hasSearched, setHasSearched] = useState(false);
+  const [mekoStatus, setMekoStatus] = useState<MekoStatus>("checking");
 
-  const [memoryFilter, setMemoryFilter] = useState("all");
+  const [activeNav, setActiveNav] = useState("Overview");
 
-  const filteredMemories = memories.filter((memory) => {
-    if (memoryFilter === "all") return true;
-    return memory.agent_id === memoryFilter;
-  });
+  useEffect(() => {
+    let active = true;
 
-  const agentActivity = [
-    {
-      id: "coding-agent",
-      name: "Coding Agent",
-      icon: "</>",
-    },
-    {
-      id: "bug-fix-agent",
-      name: "Bug Fix Agent",
-      icon: "🐛",
-    },
-    {
-      id: "code-review-agent",
-      name: "Code Review Agent",
-      icon: "⌥",
-    },
-    {
-      id: "devmemory-ai",
-      name: "Workspace",
-      icon: "◈",
-    },
-  ].map((agent) => ({
-    ...agent,
-    count: memories.filter((memory) => memory.agent_id === agent.id).length,
-  }));
+    async function checkConnection() {
+      try {
+        const response = await fetch("/api/meko/test", {
+          method: "GET",
+          cache: "no-store",
+        });
 
-  const totalSearchMemories = memories.length;
+        const data = await response.json();
 
-  const currentYear = useSyncExternalStore(
-    subscribe,
-    () => new Date().getFullYear(),
-    () => 2026,
-  );
+        if (active) {
+          setMekoStatus(response.ok && data.success ? "connected" : "error");
+        }
+      } catch {
+        if (active) setMekoStatus("error");
+      }
+    }
+
+    checkConnection();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function handleSaveMemory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const text = memoryText.trim();
 
-    if (!text || saving) return;
+    if (!text) {
+      setSaveMessage("Please enter memory content.");
+      return;
+    }
 
-    setSaving(true);
+    setIsSaving(true);
     setSaveMessage("");
-    setSaveError("");
 
     try {
       const response = await fetch("/api/meko/memories", {
@@ -222,30 +230,25 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          text,
-          agentId: selectedMemoryAgent,
-        }),
+        body: JSON.stringify({ text }),
       });
 
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.message || "Could not save memory.");
+        throw new Error(data.message || "Unable to save memory.");
       }
 
-      setSaveMessage(
-        `Memory saved successfully under ${getAgentName(selectedMemoryAgent)}!`,
-      );
+      setSaveMessage("Memory saved successfully!");
       setMemoryText("");
     } catch (error) {
-      setSaveError(
+      setSaveMessage(
         error instanceof Error
           ? error.message
           : "Something went wrong while saving.",
       );
     } finally {
-      setSaving(false);
+      setIsSaving(false);
     }
   }
 
@@ -254,656 +257,811 @@ export default function Home() {
 
     const query = searchQuery.trim();
 
-    if (!query || searching) return;
+    if (!query) {
+      setSearchMessage("Please enter a search query.");
+      return;
+    }
 
-    setSearching(true);
-    setSearchError("");
-    setHasSearched(false);
+    setIsSearching(true);
+    setSearchMessage("");
     setMemories([]);
-    setMemoryFilter("all");
 
     try {
-      const params = new URLSearchParams({
-        query,
-        limit: "10",
-      });
-
-      const response = await fetch(`/api/meko/memories?${params.toString()}`);
+      const response = await fetch(
+        `/api/meko/memories?query=${encodeURIComponent(query)}&limit=10`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      );
 
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.message || "Memory search failed.");
+        throw new Error(data.message || "Unable to search shared memory.");
       }
 
-      const results = extractMemories(data.result);
+      const results = extractMemories(data.result ?? data);
 
       setMemories(results);
-      setHasSearched(true);
+      setSearchMessage(
+        results.length
+          ? `Found ${results.length} matching memories.`
+          : "No matching memories found. Try a different query.",
+      );
     } catch (error) {
-      setSearchError(
+      setSearchMessage(
         error instanceof Error
           ? error.message
           : "Something went wrong while searching.",
       );
     } finally {
-      setSearching(false);
+      setIsSearching(false);
     }
   }
 
+  const filteredMemories = useMemo(() => {
+    if (memoryFilter === "all") return memories;
+
+    return memories.filter((memory) => memory.agent_id === memoryFilter);
+  }, [memories, memoryFilter]);
+
+  const agentActivity = useMemo(
+    () =>
+      agents.map((agent) => ({
+        ...agent,
+        count: memories.filter((memory) => memory.agent_id === agent.id).length,
+      })),
+    [memories],
+  );
+
+  const statusLabel =
+    mekoStatus === "connected"
+      ? "Connected"
+      : mekoStatus === "error"
+        ? "Connection issue"
+        : "Checking...";
+
+  const statusColor =
+    mekoStatus === "connected"
+      ? "bg-emerald-400"
+      : mekoStatus === "error"
+        ? "bg-red-400"
+        : "bg-amber-400 animate-pulse";
+
   return (
-    <main className="min-h-screen bg-[#080B16] text-slate-100">
-      {/* Background */}
+    <main className="min-h-screen overflow-x-hidden bg-[#080c13] text-slate-100 selection:bg-cyan-400/30">
+      {/* Ambient background */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-48 left-1/3 h-[450px] w-[450px] rounded-full bg-violet-600/10 blur-[130px]" />
-        <div className="absolute right-0 top-1/3 h-[400px] w-[400px] rounded-full bg-blue-600/10 blur-[130px]" />
+        <div className="absolute -left-48 -top-48 h-[520px] w-[520px] rounded-full bg-cyan-500/[0.055] blur-[140px]" />
+        <div className="absolute -right-48 top-[30%] h-[500px] w-[500px] rounded-full bg-blue-500/[0.045] blur-[140px]" />
+        <div className="absolute bottom-[-220px] left-[35%] h-[450px] w-[450px] rounded-full bg-cyan-400/[0.035] blur-[140px]" />
       </div>
 
-      <div className="relative flex min-h-screen">
-        {/* Sidebar */}
-        <aside className="hidden w-[250px] shrink-0 flex-col border-r border-white/[0.07] bg-[#0B0F1D]/90 px-5 py-7 lg:flex">
-          <div className="mb-12 flex items-center gap-3 px-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-xl font-bold shadow-lg shadow-violet-500/20">
+      <div className="relative min-h-screen">
+        {/* Desktop sidebar */}
+        <aside className="fixed inset-y-0 left-0 z-40 hidden w-[258px] flex-col border-r border-white/[0.07] bg-[#0a1019]/95 px-5 py-6 backdrop-blur-2xl lg:flex">
+          <a
+            href="#overview"
+            onClick={() => setActiveNav("Overview")}
+            className="mb-11 flex items-center gap-3"
+          >
+            <div className="flex h-11 w-11 items-center justify-center rounded-[14px] border border-cyan-300/20 bg-gradient-to-br from-cyan-300/20 to-blue-500/10 text-lg font-black text-cyan-200 shadow-[0_0_30px_rgba(34,211,238,0.12)]">
               D
             </div>
 
             <div>
-              <h1 className="text-lg font-bold tracking-tight">
-                DevMemory<span className="text-violet-400">.ai</span>
-              </h1>
-              <p className="text-[10px] tracking-[0.2em] text-slate-500">
-                SHARED AI MEMORY
+              <p className="text-[17px] font-bold tracking-tight text-white">
+                DevMemory<span className="text-cyan-300">.ai</span>
+              </p>
+              <p className="mt-0.5 text-[9px] font-semibold uppercase tracking-[0.25em] text-slate-500">
+                Shared AI Memory
               </p>
             </div>
-          </div>
+          </a>
 
-          <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600">
+          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600">
             Workspace
           </p>
 
           <nav className="space-y-1">
-            {navItems.map((item) => (
-              <button
-                key={item.name}
-                onClick={() => setActiveNav(item.name)}
-                className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm transition ${
-                  activeNav === item.name
-                    ? "border border-violet-400/20 bg-violet-500/10 text-violet-200 shadow-sm shadow-violet-950/20"
-                    : "text-slate-400 hover:bg-white/[0.04] hover:text-white"
-                }`}
-              >
-                <span className="w-5 text-center text-lg">{item.icon}</span>
-                {item.name}
+            {navigation.map((item) => {
+              const active = activeNav === item.label;
 
-                {item.name === "Shared Memory" && memories.length > 0 && (
-                  <span className="ml-auto rounded-md bg-white/[0.06] px-2 py-0.5 text-[10px] text-slate-400">
-                    {memories.length}
+              return (
+                <a
+                  key={item.label}
+                  href={item.href}
+                  onClick={() => setActiveNav(item.label)}
+                  className={`group relative flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition-all ${
+                    active
+                      ? "border border-cyan-300/10 bg-cyan-300/[0.08] text-cyan-200"
+                      : "border border-transparent text-slate-400 hover:bg-white/[0.04] hover:text-white"
+                  }`}
+                >
+                  {active && (
+                    <span className="absolute bottom-2 left-0 top-2 w-[2px] rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(103,232,249,0.8)]" />
+                  )}
+
+                  <span
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg text-base transition ${
+                      active
+                        ? "bg-cyan-300/10 text-cyan-200"
+                        : "text-slate-500 group-hover:text-cyan-200"
+                    }`}
+                  >
+                    {item.icon}
                   </span>
-                )}
-              </button>
-            ))}
+
+                  <span className="font-medium">{item.label}</span>
+
+                  {active && (
+                    <span className="ml-auto h-1.5 w-1.5 rounded-full bg-cyan-300" />
+                  )}
+                </a>
+              );
+            })}
           </nav>
 
           <div className="mt-auto">
-            <div className="rounded-2xl border border-emerald-400/15 bg-gradient-to-br from-emerald-500/10 to-blue-500/5 p-4">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                <span className="text-xs font-semibold text-slate-300">
+            <div className="rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.045] to-transparent p-4">
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-300/10 text-cyan-200">
+                  ◈
+                </span>
+                <span className="text-xs font-semibold text-slate-200">
                   Meko Context Engine
                 </span>
               </div>
 
-              <p className="mb-3 text-xs leading-5 text-slate-400">
-                Persistent shared memory for your AI agents.
-              </p>
+              <div className="mt-4 flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${statusColor}`} />
+                <span className="text-xs text-slate-400">{statusLabel}</span>
+              </div>
 
-              <span className="inline-flex rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-medium text-emerald-300">
-                Connected
-              </span>
+              <p className="mt-3 text-[10px] leading-5 text-slate-600">
+                Persistent context for your AI agents.
+              </p>
             </div>
 
             <div className="mt-5 flex items-center gap-3 border-t border-white/[0.07] pt-5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-xs font-bold">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full border border-cyan-300/20 bg-cyan-300/10 text-xs font-bold text-cyan-200">
                 KM
               </div>
-
               <div className="min-w-0">
-                <p className="text-sm font-medium">Kishan Modi</p>
-                <p className="text-xs text-slate-500">Free workspace</p>
+                <p className="truncate text-xs font-semibold text-slate-200">
+                  DevMemory Workspace
+                </p>
+                <p className="mt-0.5 text-[10px] text-slate-500">
+                  Personal workspace
+                </p>
               </div>
-
-              <span className="ml-auto text-slate-500">•••</span>
             </div>
           </div>
         </aside>
 
-        {/* Main */}
-        <section className="min-w-0 flex-1 px-5 py-6 sm:px-8 lg:px-10 lg:py-9">
-          <header className="mb-9 flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3 lg:hidden">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 font-bold">
-                D
+        {/* Main area */}
+        <div className="min-w-0 lg:ml-[258px]">
+          {/* Header */}
+          <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-[#080c13]/85 px-4 py-3 backdrop-blur-2xl sm:px-6 lg:px-9">
+            <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 font-bold text-cyan-200 lg:hidden">
+                  D
+                </div>
+
+                <div className="min-w-0">
+                  <p className="truncate text-xs text-slate-500">
+                    Workspace
+                    <span className="mx-2 text-slate-700">/</span>
+                    <span className="text-slate-300">{activeNav}</span>
+                  </p>
+                  <p className="mt-1 hidden text-[10px] text-slate-600 sm:block">
+                    Your AI memory workspace
+                  </p>
+                </div>
               </div>
-              <span className="font-bold">
-                DevMemory<span className="text-violet-400">.ai</span>
-              </span>
-            </div>
 
-            <div className="hidden lg:block">
-              <p className="text-xs text-slate-500">
-                Workspace / <span className="text-slate-300">{activeNav}</span>
-              </p>
-            </div>
-
-            <div className="ml-auto flex items-center gap-3">
-              <span className="hidden rounded-xl border border-emerald-400/15 bg-emerald-400/[0.06] px-4 py-2.5 text-xs text-emerald-300 sm:block">
-                ● Meko connection active
-              </span>
-
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-xs font-bold lg:hidden">
-                KM
+              <div className="flex shrink-0 items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-2">
+                <span className={`h-1.5 w-1.5 rounded-full ${statusColor}`} />
+                <span className="text-[10px] font-medium text-slate-300 sm:text-xs">
+                  Meko {statusLabel}
+                </span>
               </div>
             </div>
           </header>
 
-          {/* Welcome */}
-          <div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
-            <div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-500/[0.08] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-violet-300">
-                <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />
-                Meko-powered memory
-              </div>
+          {/* Mobile / tablet navigation */}
+          <div className="sticky top-[61px] z-20 border-b border-white/[0.06] bg-[#080c13]/95 px-3 py-2 backdrop-blur-2xl lg:hidden">
+            <nav className="mx-auto flex max-w-[1500px] gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {navigation.map((item) => {
+                const active = activeNav === item.label;
 
-              <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-                Your AI memory workspace <span className="inline-block">✦</span>
-              </h2>
-
-              <p className="mt-2 text-sm text-slate-400">
-                Teach once. Remember forever. Build smarter together.
-              </p>
-            </div>
-
-            <span className="text-xs text-slate-500">Developer workspace</span>
-          </div>
-
-          {/* Meko banner */}
-          <div className="mb-7 overflow-hidden rounded-2xl border border-violet-400/20 bg-gradient-to-r from-violet-500/[0.13] via-[#151A32] to-blue-500/[0.10] p-5 sm:p-6">
-            <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
-              <div className="flex items-start gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-violet-300/20 bg-violet-400/10 text-2xl text-violet-300">
-                  ✳
-                </div>
-
-                <div>
-                  <p className="text-sm font-semibold">Meko Context Engine</p>
-                  <p className="mt-1 max-w-xl text-xs leading-5 text-slate-400">
-                    Your application is connected to Meko. Save project
-                    knowledge and retrieve it whenever your agents need context.
-                  </p>
-                  <p className="mt-2 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
-                    ● Meko connection active
-                  </p>
-                </div>
-              </div>
-
-              <span className="shrink-0 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2.5 text-xs font-semibold text-emerald-300">
-                ✓ Connected
-              </span>
-            </div>
-          </div>
-
-          {/* Agent chats */}
-          <div className="mb-8 space-y-6">
-            <CodingAgentChat />
-            <BugFixAgentChat />
-            <CodeReviewAgentChat />
-          </div>
-
-          {/* Save and Search */}
-          <div className="mb-8 grid gap-5 xl:grid-cols-2">
-            {/* Save memory */}
-            <div className="rounded-2xl border border-white/[0.07] bg-[#101525]/90 p-5 sm:p-6">
-              <div className="mb-5 flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10 text-xl text-violet-300">
-                  ◈
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-semibold">Save a memory</h3>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Store knowledge in your shared Meko memory.
-                  </p>
-                </div>
-              </div>
-
-              <form onSubmit={handleSaveMemory}>
-                <label
-                  htmlFor="memory-agent"
-                  className="mb-2 block text-xs font-medium text-slate-300"
-                >
-                  Save memory under
-                </label>
-
-                <select
-                  id="memory-agent"
-                  value={selectedMemoryAgent}
-                  onChange={(event) =>
-                    setSelectedMemoryAgent(event.target.value)
-                  }
-                  className="mb-4 w-full rounded-xl border border-white/10 bg-[#0B1020] px-4 py-3 text-sm text-slate-200 outline-none focus:border-violet-400/50"
-                >
-                  <option value="devmemory-ai">DevMemory Workspace</option>
-                  <option value="coding-agent">Coding Agent</option>
-                  <option value="bug-fix-agent">Bug Fix Agent</option>
-                  <option value="code-review-agent">Code Review Agent</option>
-                </select>
-
-                <div className="mb-2 flex justify-between gap-2">
-                  <label
-                    htmlFor="memory-content"
-                    className="text-xs font-medium text-slate-300"
-                  >
-                    Memory content
-                  </label>
-
-                  <span className="text-[10px] text-slate-500">
-                    {memoryText.length}/10,000 characters
-                  </span>
-                </div>
-
-                <textarea
-                  id="memory-content"
-                  value={memoryText}
-                  onChange={(event) => setMemoryText(event.target.value)}
-                  maxLength={10000}
-                  rows={4}
-                  required
-                  placeholder="Example: Our application uses Next.js App Router and TypeScript. All API routes should validate request data..."
-                  className="w-full resize-y rounded-xl border border-white/10 bg-[#0B1020] p-4 text-sm text-slate-200 outline-none transition placeholder:text-slate-600 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-500/10"
-                />
-
-                {saveMessage && (
-                  <p className="mt-3 rounded-lg border border-emerald-400/15 bg-emerald-400/[0.06] px-3 py-2 text-xs text-emerald-300">
-                    ✓ {saveMessage}
-                  </p>
-                )}
-
-                {saveError && (
-                  <p className="mt-3 rounded-lg border border-red-400/15 bg-red-400/[0.06] px-3 py-2 text-xs text-red-300">
-                    {saveError}
-                  </p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={saving || !memoryText.trim()}
-                  className="mt-4 w-full rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-5 py-3 text-sm font-semibold shadow-lg shadow-violet-950/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-                >
-                  {saving ? "Saving..." : "Save Memory →"}
-                </button>
-              </form>
-            </div>
-
-            {/* Search memory */}
-            <div className="rounded-2xl border border-white/[0.07] bg-[#101525]/90 p-5 sm:p-6">
-              <div className="mb-5 flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-xl text-blue-300">
-                  ⌕
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-semibold">
-                    Search shared memory
-                  </h3>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Find previously stored project knowledge.
-                  </p>
-                </div>
-              </div>
-
-              <form onSubmit={handleSearchMemory}>
-                <label
-                  htmlFor="memory-search"
-                  className="mb-2 block text-xs font-medium text-slate-300"
-                >
-                  What do you want to remember?
-                </label>
-
-                <input
-                  id="memory-search"
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="Search project knowledge, bug fixes, decisions..."
-                  required
-                  className="w-full rounded-xl border border-white/10 bg-[#0B1020] px-4 py-3 text-sm text-slate-200 outline-none transition placeholder:text-slate-600 focus:border-blue-400/50 focus:ring-2 focus:ring-blue-500/10"
-                />
-
-                {searchError && (
-                  <p className="mt-3 rounded-lg border border-red-400/15 bg-red-400/[0.06] px-3 py-2 text-xs text-red-300">
-                    {searchError}
-                  </p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={searching || !searchQuery.trim()}
-                  className="mt-4 w-full rounded-xl border border-blue-400/20 bg-blue-500/10 px-5 py-3 text-sm font-semibold text-blue-200 transition hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-                >
-                  {searching ? "Searching..." : "Search Memories →"}
-                </button>
-              </form>
-            </div>
-          </div>
-
-          {/* Search results */}
-          {hasSearched && (
-            <div className="mb-8 rounded-2xl border border-white/[0.07] bg-[#101525]/80 p-5 sm:p-6">
-              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Meko search results</h3>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Results retrieved from your persistent shared memory.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={memoryFilter}
-                    onChange={(event) => setMemoryFilter(event.target.value)}
-                    aria-label="Filter memories by agent"
-                    className="rounded-lg border border-white/10 bg-[#0B1020] px-3 py-2 text-xs text-slate-300 outline-none focus:border-violet-400/50"
-                  >
-                    <option value="all">All Agents</option>
-                    <option value="coding-agent">Coding Agent</option>
-                    <option value="bug-fix-agent">Bug Fix Agent</option>
-                    <option value="code-review-agent">Code Review Agent</option>
-                    <option value="devmemory-ai">DevMemory Workspace</option>
-                  </select>
-
-                  <span className="rounded-lg border border-violet-400/20 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-300">
-                    {filteredMemories.length} matches
-                  </span>
-                </div>
-              </div>
-
-              {filteredMemories.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-8 text-center">
-                  <p className="text-sm font-medium text-slate-300">
-                    No matching memories found
-                  </p>
-                  <p className="mt-2 text-xs text-slate-500">
-                    Try another filter or search phrase, or save some project
-                    knowledge.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {filteredMemories.map((memory) => (
-                    <article
-                      key={memory.id}
-                      className="rounded-xl border border-white/[0.07] bg-[#0B1020] p-4 transition hover:border-violet-400/20"
-                    >
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <span className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-violet-300">
-                          <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />
-                          Shared memory
-                        </span>
-
-                        {typeof memory.score === "number" && (
-                          <span className="rounded-lg bg-emerald-400/[0.08] px-2.5 py-1 text-[10px] font-medium text-emerald-300">
-                            {(memory.score * 100).toFixed(1)}% relevance
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="whitespace-pre-wrap text-sm leading-6 text-slate-200">
-                        {memory.memory}
-                      </p>
-
-                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-3 text-[10px] text-slate-500">
-                        <div className="flex flex-wrap gap-x-4 gap-y-2">
-                          <span>Agent: {getAgentName(memory.agent_id)}</span>
-                          <span>{formatDate(memory.created_at)}</span>
-                        </div>
-
-                        <button
-                          type="button"
-                          title="Copy memory ID"
-                          onClick={() => {
-                            void navigator.clipboard.writeText(memory.id);
-                          }}
-                          className="max-w-full truncate text-violet-300 transition hover:text-violet-200"
-                        >
-                          ID: {memory.id.slice(0, 8)}... Copy
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Agent Memory Activity */}
-          {hasSearched && (
-            <section className="mb-8">
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold">Agent Memory Activity</h3>
-                <p className="mt-1 text-xs text-slate-500">
-                  Memories returned by your latest Meko search, grouped by
-                  agent.
-                </p>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {agentActivity.map((agent) => (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    onClick={() => setMemoryFilter(agent.id)}
-                    aria-pressed={memoryFilter === agent.id}
-                    className={`w-full rounded-2xl border p-5 text-left transition hover:border-violet-400/40 ${
-                      memoryFilter === agent.id
-                        ? "border-violet-400/40 bg-violet-500/10"
-                        : "border-white/[0.07] bg-[#101525]/80"
+                return (
+                  <a
+                    key={item.label}
+                    href={item.href}
+                    onClick={() => setActiveNav(item.label)}
+                    className={`flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2.5 text-xs font-medium transition ${
+                      active
+                        ? "border-cyan-300/20 bg-cyan-300/10 text-cyan-200"
+                        : "border-white/[0.06] text-slate-400 hover:bg-white/[0.04]"
                     }`}
                   >
-                    <div className="mb-4 flex items-center justify-between">
-                      <span className="text-xl text-violet-300">
-                        {agent.icon}
-                      </span>
-                      <span className="rounded-lg border border-violet-400/15 bg-violet-500/10 px-2.5 py-1 text-[10px] text-violet-300">
-                        Meko results
-                      </span>
-                    </div>
+                    <span>{item.icon}</span>
+                    {item.label}
+                  </a>
+                );
+              })}
+            </nav>
+          </div>
 
-                    <p className="text-2xl font-semibold tabular-nums">
-                      {agent.count}
-                    </p>
-
-                    <p className="mt-1 text-xs font-medium text-slate-300">
-                      {agent.name}
-                    </p>
-
-                    <p className="mt-2 text-[10px] text-slate-500">
-                      Memories in latest search
-                    </p>
-                  </button>
-                ))}
-
-                <button
-                  type="button"
-                  onClick={() => setMemoryFilter("all")}
-                  aria-pressed={memoryFilter === "all"}
-                  className="w-full rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.04] p-5 text-left transition hover:border-emerald-400/40"
-                >
-                  <div className="mb-4 flex items-center justify-between">
-                    <span className="text-xl text-emerald-300">◈</span>
-                    <span className="text-[10px] text-emerald-300">
-                      Combined
+          <div className="mx-auto w-full max-w-[1500px] px-4 py-7 sm:px-6 sm:py-9 lg:px-9 lg:py-10">
+            {/* Hero */}
+            <section id="overview" className="scroll-mt-36">
+              <div className="flex flex-col justify-between gap-7 xl:flex-row xl:items-end">
+                <div className="max-w-3xl">
+                  <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/[0.06] px-3 py-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.9)]" />
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">
+                      Meko-powered context engine
                     </span>
                   </div>
 
-                  <p className="text-2xl font-semibold tabular-nums">
-                    {totalSearchMemories}
-                  </p>
+                  <h1 className="text-3xl font-bold leading-[1.15] tracking-tight text-white sm:text-4xl lg:text-[46px]">
+                    Your AI agents.
+                    <br className="hidden sm:block" />
+                    <span className="bg-gradient-to-r from-cyan-200 via-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                      One shared memory.
+                    </span>
+                  </h1>
 
-                  <p className="mt-1 text-xs font-medium text-slate-300">
-                    Total memories
+                  <p className="mt-5 max-w-2xl text-sm leading-7 text-slate-400 sm:text-base">
+                    Teach once. Remember forever. Give your Coding, Bug Fix, and
+                    Code Review Agents persistent project knowledge to work
+                    smarter together.
                   </p>
+                </div>
 
-                  <p className="mt-2 text-[10px] text-slate-500">
-                    Returned by latest search
-                  </p>
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  {["Next.js", "React", "TypeScript", "Meko MCP"].map(
+                    (technology) => (
+                      <span
+                        key={technology}
+                        className="rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2 text-[10px] font-medium text-slate-400 sm:text-xs"
+                      >
+                        {technology}
+                      </span>
+                    ),
+                  )}
+                </div>
               </div>
             </section>
-          )}
 
-          {/* Workspace overview */}
-          <div className="mb-8">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-lg font-semibold">Workspace overview</h3>
-                <p className="mt-1 text-xs text-slate-500">
-                  Live search data and project previews.
+            {/* Meko banner */}
+            <section className="mt-9">
+              <div className="relative overflow-hidden rounded-2xl border border-cyan-300/15 bg-gradient-to-r from-[#102b39] via-[#0e1c2a] to-[#0d1521] p-5 sm:p-6">
+                <div className="pointer-events-none absolute -right-10 -top-24 h-60 w-60 rounded-full bg-cyan-400/[0.10] blur-3xl" />
+
+                <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-xl text-cyan-200">
+                      ◈
+                    </div>
+
+                    <div>
+                      <h2 className="text-sm font-semibold text-white sm:text-base">
+                        Meko Context Engine
+                      </h2>
+                      <p className="mt-1 max-w-2xl text-xs leading-6 text-slate-400 sm:text-sm">
+                        A persistent memory layer that helps agents reuse
+                        project knowledge, previous solutions, and development
+                        context.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-2 self-start rounded-full border border-white/[0.08] bg-black/20 px-3 py-2 sm:self-center">
+                    <span className={`h-2 w-2 rounded-full ${statusColor}`} />
+                    <span className="text-xs font-medium text-slate-300">
+                      {statusLabel}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* AI agents */}
+            <section id="ai-agents" className="mt-14 scroll-mt-36">
+              <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300">
+                    Agent workspace
+                  </p>
+                  <h2 className="mt-2 text-xl font-bold tracking-tight text-white sm:text-2xl">
+                    Meet your AI agents
+                  </h2>
+                  <p className="mt-2 text-xs leading-6 text-slate-500 sm:text-sm">
+                    Three specialized agents. One shared knowledge layer.
+                  </p>
+                </div>
+
+                <span className="self-start rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2 text-[10px] text-slate-500 sm:self-auto">
+                  03 agent interfaces
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2 2xl:grid-cols-3">
+                <article className="min-w-0 overflow-hidden rounded-2xl border border-cyan-300/15 bg-[#0d1521] shadow-[0_16px_50px_rgba(0,0,0,0.18)] transition duration-300 hover:border-cyan-300/30">
+                  <div className="border-b border-white/[0.07] bg-gradient-to-r from-cyan-400/[0.09] to-transparent p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 font-mono text-sm font-bold text-cyan-200">
+                        {"</>"}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-semibold text-white">
+                          Coding Agent
+                        </h3>
+                        <p className="mt-1 text-[10px] text-slate-500">
+                          Feature development and coding
+                        </p>
+                      </div>
+                      <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-cyan-300" />
+                    </div>
+                  </div>
+                  <div className="min-w-0 p-3 sm:p-4">
+                    <CodingAgentChat />
+                  </div>
+                </article>
+
+                <article className="min-w-0 overflow-hidden rounded-2xl border border-blue-300/15 bg-[#0d1521] shadow-[0_16px_50px_rgba(0,0,0,0.18)] transition duration-300 hover:border-blue-300/30">
+                  <div className="border-b border-white/[0.07] bg-gradient-to-r from-blue-400/[0.09] to-transparent p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-blue-300/20 bg-blue-300/10 text-lg text-blue-200">
+                        ⌘
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-semibold text-white">
+                          Bug Fix Agent
+                        </h3>
+                        <p className="mt-1 text-[10px] text-slate-500">
+                          Root-cause analysis and debugging
+                        </p>
+                      </div>
+                      <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-blue-300" />
+                    </div>
+                  </div>
+                  <div className="min-w-0 p-3 sm:p-4">
+                    <BugFixAgentChat />
+                  </div>
+                </article>
+
+                <article className="min-w-0 overflow-hidden rounded-2xl border border-violet-300/15 bg-[#0d1521] shadow-[0_16px_50px_rgba(0,0,0,0.18)] transition duration-300 hover:border-violet-300/30 xl:col-span-2 2xl:col-span-1">
+                  <div className="border-b border-white/[0.07] bg-gradient-to-r from-violet-400/[0.09] to-transparent p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-violet-300/20 bg-violet-300/10 text-lg text-violet-200">
+                        ⌥
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-semibold text-white">
+                          Code Review Agent
+                        </h3>
+                        <p className="mt-1 text-[10px] text-slate-500">
+                          Code quality and security review
+                        </p>
+                      </div>
+                      <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-violet-300" />
+                    </div>
+                  </div>
+                  <div className="min-w-0 p-3 sm:p-4">
+                    <CodeReviewAgentChat />
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            {/* Shared memory */}
+            <section id="shared-memory" className="mt-14 scroll-mt-36">
+              <div className="mb-6">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300">
+                  Persistent knowledge
+                </p>
+                <h2 className="mt-2 text-xl font-bold text-white sm:text-2xl">
+                  Shared memory
+                </h2>
+                <p className="mt-2 text-xs leading-6 text-slate-500 sm:text-sm">
+                  Save useful knowledge once. Search and reuse it across agents.
                 </p>
               </div>
 
-              <span className="text-[10px] text-slate-500">
-                Preview data · Not live metrics
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {[
-                {
-                  label: "Total Projects",
-                  value: "04",
-                  change: "Preview data",
-                  icon: "▣",
-                },
-                {
-                  label: "AI Agents",
-                  value: "03",
-                  change: "3 agent interfaces integrated",
-                  icon: "✳",
-                },
-                {
-                  label: "Latest Search Matches",
-                  value: hasSearched ? String(memories.length) : "—",
-                  change: hasSearched
-                    ? "Actual Meko search results"
-                    : "Use memory search below",
-                  icon: "◈",
-                },
-                {
-                  label: "Decisions Traced",
-                  value: "—",
-                  change: "Not connected yet",
-                  icon: "⌇",
-                },
-              ].map((stat) => (
-                <div
-                  key={stat.label}
-                  className="group rounded-2xl border border-white/[0.07] bg-[#101525]/80 p-5 transition hover:-translate-y-1 hover:border-violet-400/25"
-                >
-                  <div className="mb-5 flex items-center justify-between">
-                    <p className="text-xs font-medium text-slate-400">
-                      {stat.label}
-                    </p>
-                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-500/10 text-lg text-violet-300">
-                      {stat.icon}
-                    </span>
+              <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                {/* Save form */}
+                <div className="rounded-2xl border border-white/[0.08] bg-[#0d1521] p-5 sm:p-6">
+                  <div className="mb-5 flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-300/15 bg-cyan-300/[0.08] text-xl text-cyan-200">
+                      +
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-white">
+                        Save a memory
+                      </h3>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        Add knowledge to persistent context
+                      </p>
+                    </div>
                   </div>
 
-                  <p className="text-3xl font-semibold tracking-tight">
-                    {stat.value}
+                  <form onSubmit={handleSaveMemory}>
+                    <label
+                      htmlFor="memoryText"
+                      className="mb-2 block text-xs font-medium text-slate-300"
+                    >
+                      Memory content
+                    </label>
+
+                    <textarea
+                      id="memoryText"
+                      value={memoryText}
+                      onChange={(event) => setMemoryText(event.target.value)}
+                      placeholder="Example: This project uses Next.js App Router, TypeScript, and Meko for persistent shared memory..."
+                      rows={5}
+                      maxLength={10000}
+                      className="min-h-[130px] w-full resize-y rounded-xl border border-white/[0.09] bg-[#080e17] px-4 py-3 text-sm leading-6 text-slate-200 outline-none transition placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-2 focus:ring-cyan-300/10"
+                    />
+
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                      <span className="text-[10px] text-slate-600">
+                        {memoryText.length}/10,000 characters
+                      </span>
+
+                      <button
+                        type="submit"
+                        disabled={isSaving || !memoryText.trim()}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-300 px-5 py-3 text-xs font-bold text-[#06111a] shadow-[0_0_22px_rgba(34,211,238,0.12)] transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {isSaving ? "Saving..." : "Save memory"}
+                        <span>→</span>
+                      </button>
+                    </div>
+                  </form>
+
+                  {saveMessage && (
+                    <p
+                      role="status"
+                      className={`mt-4 rounded-xl border px-3 py-3 text-xs ${
+                        saveMessage.includes("successfully")
+                          ? "border-emerald-400/20 bg-emerald-400/[0.06] text-emerald-300"
+                          : "border-red-400/20 bg-red-400/[0.06] text-red-300"
+                      }`}
+                    >
+                      {saveMessage}
+                    </p>
+                  )}
+                </div>
+
+                {/* Search form */}
+                <div
+                  id="knowledge-search"
+                  className="scroll-mt-36 rounded-2xl border border-white/[0.08] bg-[#0d1521] p-5 sm:p-6"
+                >
+                  <div className="mb-5 flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-300/15 bg-cyan-300/[0.08] text-xl text-cyan-200">
+                      ⌕
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-white">
+                        Search shared memory
+                      </h3>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        Retrieve relevant project knowledge
+                      </p>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleSearchMemory}>
+                    <label
+                      htmlFor="searchQuery"
+                      className="mb-2 block text-xs font-medium text-slate-300"
+                    >
+                      Search query
+                    </label>
+
+                    <textarea
+                      id="searchQuery"
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="Example: How does this project handle authentication?"
+                      rows={5}
+                      maxLength={5000}
+                      className="min-h-[130px] w-full resize-y rounded-xl border border-white/[0.09] bg-[#080e17] px-4 py-3 text-sm leading-6 text-slate-200 outline-none transition placeholder:text-slate-600 focus:border-cyan-300/40 focus:ring-2 focus:ring-cyan-300/10"
+                    />
+
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                      <span className="text-[10px] text-slate-600">
+                        Search across persistent Meko memory
+                      </span>
+
+                      <button
+                        type="submit"
+                        disabled={isSearching || !searchQuery.trim()}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-300/25 bg-cyan-300/[0.09] px-5 py-3 text-xs font-semibold text-cyan-200 transition hover:bg-cyan-300/[0.16] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {isSearching ? "Searching..." : "Search memory"}
+                        <span>⌕</span>
+                      </button>
+                    </div>
+                  </form>
+
+                  {searchMessage && (
+                    <p
+                      role="status"
+                      className={`mt-4 rounded-xl border px-3 py-3 text-xs ${
+                        searchMessage.startsWith("Found")
+                          ? "border-cyan-300/20 bg-cyan-300/[0.06] text-cyan-200"
+                          : searchMessage.startsWith("No matching")
+                            ? "border-amber-300/20 bg-amber-300/[0.06] text-amber-200"
+                            : "border-red-400/20 bg-red-400/[0.06] text-red-300"
+                      }`}
+                    >
+                      {searchMessage}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {/* Search results */}
+            {memories.length > 0 && (
+              <section className="mt-10">
+                <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300">
+                      Retrieved knowledge
+                    </p>
+                    <h2 className="mt-2 text-xl font-bold text-white">
+                      Search results
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {memories.length} matching memories returned by Meko
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMemories([]);
+                      setSearchMessage("");
+                      setMemoryFilter("all");
+                    }}
+                    className="self-start rounded-lg border border-white/[0.08] px-3 py-2 text-xs text-slate-400 transition hover:border-white/20 hover:text-white sm:self-auto"
+                  >
+                    Clear results
+                  </button>
+                </div>
+
+                <div className="mb-5 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMemoryFilter("all")}
+                    className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${
+                      memoryFilter === "all"
+                        ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-200"
+                        : "border-white/[0.08] bg-white/[0.02] text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    All agents ({memories.length})
+                  </button>
+
+                  {agents.map((agent) => {
+                    const count = memories.filter(
+                      (memory) => memory.agent_id === agent.id,
+                    ).length;
+
+                    return (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        onClick={() => setMemoryFilter(agent.id)}
+                        className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${
+                          memoryFilter === agent.id
+                            ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-200"
+                            : "border-white/[0.08] bg-white/[0.02] text-slate-400 hover:text-white"
+                        }`}
+                      >
+                        {agent.name} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="space-y-3">
+                  {filteredMemories.length > 0 ? (
+                    filteredMemories.map((memory, index) => (
+                      <article
+                        key={memory.id}
+                        className="rounded-xl border border-white/[0.07] bg-[#0d1521] p-4 transition hover:border-cyan-300/20 sm:p-5"
+                      >
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-300/[0.09] text-[10px] font-bold text-cyan-200">
+                              {String(index + 1).padStart(2, "0")}
+                            </span>
+                            <span className="text-xs font-semibold text-slate-300">
+                              {getAgentName(memory.agent_id)}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3">
+                            {typeof memory.score === "number" && (
+                              <span className="rounded-md border border-cyan-300/10 bg-cyan-300/[0.05] px-2 py-1 text-[10px] text-cyan-200">
+                                Score: {memory.score.toFixed(3)}
+                              </span>
+                            )}
+                            <span className="text-[10px] text-slate-600">
+                              {formatDate(memory.created_at)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-300">
+                          {memory.memory}
+                        </p>
+
+                        <div className="mt-4 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard
+                                ?.writeText(memory.memory)
+                                .catch(() => {
+                                  // Clipboard can be unavailable.
+                                });
+                            }}
+                            className="rounded-lg border border-white/[0.08] px-3 py-2 text-[10px] font-medium text-slate-500 transition hover:border-cyan-300/20 hover:text-cyan-200"
+                          >
+                            Copy memory
+                          </button>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-white/[0.1] px-5 py-10 text-center">
+                      <p className="text-sm text-slate-400">
+                        No results for this agent in the current search.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setMemoryFilter("all")}
+                        className="mt-3 text-xs font-medium text-cyan-300 hover:text-cyan-200"
+                      >
+                        Show all results
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {/* Search activity */}
+            {memories.length > 0 && (
+              <section className="mt-10">
+                <div className="mb-5">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300">
+                    Search breakdown
                   </p>
-                  <p className="mt-2 text-[11px] text-slate-500">
-                    {stat.change}
+                  <h2 className="mt-2 text-lg font-bold text-white">
+                    Agent memory activity
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Based on results from your latest memory search.
                   </p>
                 </div>
-              ))}
-            </div>
-          </div>
 
-          {/* Agents */}
-          <div className="mb-8">
-            <div className="mb-4">
-              <h3 className="text-lg font-semibold">Your AI agents</h3>
-              <p className="mt-1 text-xs text-slate-500">
-                Specialized agents powered by shared project memory.
-              </p>
-            </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {agentActivity.map((agent) => (
+                    <div
+                      key={agent.id}
+                      className="rounded-xl border border-white/[0.07] bg-[#0d1521] p-4"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-slate-300">
+                          {agent.name}
+                        </span>
+                        <span className="text-[10px] text-cyan-300">
+                          {agent.count} results
+                        </span>
+                      </div>
 
-            <div className="grid gap-4 xl:grid-cols-3">
-              {agents.map((agent) => (
-                <div
-                  key={agent.name}
-                  className="rounded-2xl border border-white/[0.07] bg-[#101525]/80 p-5 transition hover:border-violet-400/25 hover:bg-[#131A2D]"
-                >
-                  <div className="mb-5 flex items-center justify-between">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-violet-400/15 bg-gradient-to-br from-violet-500/20 to-blue-500/10 text-xl text-violet-200">
-                      {agent.icon}
+                      <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-400 transition-all"
+                          style={{
+                            width: `${
+                              memories.length
+                                ? (agent.count / memories.length) * 100
+                                : 0
+                            }%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.05] p-4">
+                    <p className="text-xs font-medium text-slate-300">
+                      Combined results
+                    </p>
+                    <p className="mt-3 text-2xl font-bold text-cyan-200">
+                      {memories.length}
+                    </p>
+                    <p className="mt-1 text-[10px] text-slate-500">
+                      Latest search results
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* Agent overview */}
+            <section className="mt-14">
+              <div className="mb-6">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300">
+                  Shared context layer
+                </p>
+                <h2 className="mt-2 text-xl font-bold text-white sm:text-2xl">
+                  One memory. Multiple agents.
+                </h2>
+                <p className="mt-2 text-xs leading-6 text-slate-500 sm:text-sm">
+                  Your agents can reuse project knowledge instead of starting
+                  from zero every time.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                {agents.map((agent, index) => (
+                  <div
+                    key={agent.id}
+                    className="rounded-xl border border-white/[0.07] bg-[#0d1521] p-5 transition duration-300 hover:-translate-y-1 hover:border-cyan-300/20"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-300/15 bg-cyan-300/[0.07] font-mono text-sm font-bold text-cyan-200">
+                        {agent.icon}
+                      </div>
+                      <span className="text-[10px] font-medium text-slate-600">
+                        0{index + 1}
+                      </span>
                     </div>
 
-                    <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-medium text-emerald-300">
-                      {agent.status}
-                    </span>
+                    <h3 className="mt-5 text-sm font-semibold text-white">
+                      {agent.name}
+                    </h3>
+                    <p className="mt-2 text-xs leading-6 text-slate-500">
+                      {agent.description}
+                    </p>
                   </div>
+                ))}
+              </div>
+            </section>
 
-                  <h4 className="text-sm font-semibold">{agent.name}</h4>
-                  <p className="mt-2 min-h-10 text-xs leading-5 text-slate-400">
-                    {agent.description}
+            {/* Footer */}
+            <footer className="mt-14 border-t border-white/[0.07] py-7">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                <div>
+                  <p className="text-sm font-bold text-slate-300">
+                    DevMemory<span className="text-cyan-300">.ai</span>
                   </p>
-
-                  <div className="mt-5 border-t border-white/[0.07] pt-4">
-                    <span className="text-[11px] text-slate-500">
-                      Available in agent chat above · Gemini free-tier quota may
-                      limit requests
-                    </span>
-                  </div>
+                  <p className="mt-1 text-[10px] text-slate-600">
+                    Teach once. Remember forever. Build smarter together.
+                  </p>
                 </div>
-              ))}
-            </div>
+
+                <p className="text-[10px] text-slate-600">
+                  Powered by Meko Context Engine
+                </p>
+              </div>
+            </footer>
           </div>
-
-          {/* About */}
-          <div className="rounded-2xl border border-violet-400/15 bg-gradient-to-br from-violet-500/[0.07] to-blue-500/[0.04] p-5 sm:p-6">
-            <div className="mb-3 flex items-center gap-2">
-              <span className="text-xl text-violet-300">✳</span>
-              <h3 className="text-sm font-semibold">About DevMemory AI</h3>
-            </div>
-
-            <p className="max-w-3xl text-xs leading-6 text-slate-400">
-              DevMemory AI is shared memory infrastructure for coding agents. It
-              helps agents retain project knowledge, remember bug fixes, and
-              reuse development decisions. Meko provides the persistent context
-              layer so agents can retrieve useful information instead of
-              starting from zero every time.
-            </p>
-
-            <div className="mt-5 flex flex-wrap gap-2">
-              {["Next.js", "React", "TypeScript", "Meko MCP", "YugabyteDB"].map(
-                (technology) => (
-                  <span
-                    key={technology}
-                    className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[10px] font-medium text-slate-300"
-                  >
-                    {technology}
-                  </span>
-                ),
-              )}
-            </div>
-          </div>
-
-          {/* Footer */}
-          <footer className="mt-8 flex flex-wrap justify-between gap-2 border-t border-white/[0.06] pt-5 text-[10px] text-slate-600">
-            <span>© {currentYear} DevMemory AI · Built for developers</span>
-            <span>Persistent context. Smarter agents.</span>
-          </footer>
-        </section>
+        </div>
       </div>
     </main>
   );

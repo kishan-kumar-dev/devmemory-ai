@@ -1,3 +1,4 @@
+
 # DevMemory AI
 
 ### Teach once. Remember forever. Build smarter together.
@@ -5,6 +6,8 @@
 DevMemory AI is a shared persistent memory platform for AI-powered coding agents. It helps multiple agents retrieve and reuse project knowledge, coding decisions, debugging context, and previous solutions instead of starting from scratch every time.
 
 Built with Next.js, TypeScript, Google Gemini, and the Meko MCP context engine.
+
+---
 
 ## Features
 
@@ -15,6 +18,7 @@ Built with Next.js, TypeScript, Google Gemini, and the Meko MCP context engine.
 - Agent Attribution: Store memories with agent-specific identities.
 - Semantic Search: Retrieve relevant memories based on the meaning of a query.
 - Modern Dashboard: Manage agents and explore shared project memory.
+- Responsive Interface: Access the dashboard across desktop, tablet, and mobile devices.
 
 ## Tech Stack
 
@@ -24,37 +28,50 @@ Built with Next.js, TypeScript, Google Gemini, and the Meko MCP context engine.
 | React | User interface |
 | TypeScript | Type safety |
 | Tailwind CSS | Styling |
-| Google Gemini | AI responses |
+| Google Gemini | AI-powered responses |
 | Meko MCP | Persistent shared memory |
 | Zod | Request validation |
 
 ## Architecture
 
 ```text
-                  DevMemory AI
-                       |
-                 Next.js Dashboard
-                       |
-          +------------+------------+
-          |            |            |
-      Coding Agent  Bug Fix Agent  Code Review Agent
-          |            |            |
-          +------------+------------+
-                       |
-                 Meko MCP Server
-                       |
-             Shared Persistent Memory
-                       |
-          Search, Save and Retrieve Context
+                    DevMemory AI
+                         |
+                  Next.js Dashboard
+                         |
+            +------------+------------+
+            |            |            |
+       Coding Agent  Bug Fix Agent  Code Review Agent
+            |            |            |
+            +------------+------------+
+                         |
+                    Meko MCP
+                         |
+              Shared Persistent Memory
+                         |
+             Search, Save and Retrieve
+                    Project Context
 ```
 
-Agents retrieve relevant project context from shared memory before generating responses. After generating a response, an agent can save useful information with its own agent identity.
+### How It Works
 
-Memory attribution:
+1. A user submits a question, bug report, or code sample.
+2. The relevant agent searches Meko for related project memories.
+3. Retrieved context is included in the agent's AI request.
+4. Google Gemini generates a response using the available context.
+5. The agent saves useful question-and-answer context to Meko under its own identity.
+6. Other agents can retrieve relevant shared knowledge later.
+
+### Memory Attribution
+
+DevMemory AI uses the following agent identities:
+
 - `devmemory-ai`
 - `coding-agent`
 - `bug-fix-agent`
 - `code-review-agent`
+
+All agents can retrieve relevant shared memories while newly saved memories retain their originating agent identity.
 
 ## Getting Started
 
@@ -65,20 +82,20 @@ Memory attribution:
 - A Meko API key and MCP endpoint
 - A Google Gemini API key
 
-### 1. Clone the repository
+### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/devmemory-ai.git
+git clone https://github.com/kishan-kumar-dev/devmemory-ai.git
 cd devmemory-ai
 ```
 
-### 2. Install dependencies
+### 2. Install Dependencies
 
 ```bash
 npm install
 ```
 
-### 3. Configure environment variables
+### 3. Configure Environment Variables
 
 Create a `.env.local` file in the project root:
 
@@ -93,15 +110,15 @@ GEMINI_MODEL=gemini-3.8-flash
 
 Replace the placeholder values with your own credentials and Meko conversation ID.
 
-Important: Never commit `.env.local` or expose API keys in frontend code.
+Security: Never commit `.env.local` or expose API keys in frontend code.
 
-### 4. Start the development server
+### 4. Start the Development Server
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## API Endpoints
 
@@ -124,62 +141,86 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Shared Memory Workflow
 
-1. A user submits a question, bug report, or code sample.
-2. The relevant agent searches Meko for related project memories.
-3. Retrieved context is included in the agent's AI request.
-4. Google Gemini generates a response using the available context.
-5. The agent saves useful question-and-answer context to Meko under its own identity.
-6. Other agents can retrieve relevant shared knowledge later.
+```text
+       User Request
+             |
+             v
+       Select AI Agent
+             |
+             v
+      Search Meko Memory
+             |
+             v
+     Retrieve Relevant Context
+             |
+             v
+      Generate Gemini Response
+             |
+             v
+       Save Useful Knowledge
+             |
+             v
+      Shared Persistent Memory
+             |
+             v
+       Available to Other Agents
+```
+
+The shared memory layer allows agents to reuse relevant knowledge instead of repeatedly solving the same problems without project context.
 
 ## Testing
 
-Run TypeScript checks:
+### TypeScript Validation
 
 ```bash
 npx tsc --noEmit
 ```
 
-Create a production build:
+### Production Build
 
 ```bash
 npm run build
 ```
 
-Start the production server:
+### Start Production Server
 
 ```bash
 npm run start
 ```
 
-Test the Meko connection:
+### Test Meko Connection
+
+Using PowerShell:
 
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:3000/api/meko/test" -Method Get
 ```
 
-Test memory retrieval:
+### Test Memory Retrieval
 
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:3000/api/meko/memories?query=Next.js%20TypeScript" -Method Get
 ```
 
-## Project Status
+## Deployment
 
-- [x] Next.js and TypeScript application
-- [x] Meko MCP connection
-- [x] Persistent memory saving
-- [x] Semantic memory retrieval
-- [x] Agent-specific memory attribution
-- [x] Coding Agent API
-- [x] Bug Fix Agent API
-- [x] Code Review Agent API
-- [x] Dashboard integration
-- [x] Production build verification
-- [ ] Full successful Gemini response testing for all agents
-- [ ] Public repository and final documentation
-- [ ] Demo video and hackathon submission
+The application can be deployed on Vercel.
 
-Infrastructure note: This application currently accesses persistent memory through Meko MCP. It does not implement a separate direct YugabyteDB client connection.
+1. Push the project to GitHub.
+2. Import the repository into Vercel.
+3. Configure the required environment variables in Vercel Project Settings.
+4. Deploy the application.
+5. Open the deployed URL and verify the Meko connection.
+
+Live Demo: https://devmemory-ai.vercel.app/
+
+GitHub Repository: https://github.com/kishan-kumar-dev/devmemory-ai
+
+
+
+## Infrastructure Note
+
+This application currently accesses persistent memory through the Meko MCP context engine. It does not implement a separate direct YugabyteDB client connection.
 
 ## Security
 
@@ -187,7 +228,8 @@ Infrastructure note: This application currently accesses persistent memory throu
 - Never expose secrets in client-side components.
 - Do not commit `.env.local`.
 - Validate API requests before processing.
-- Treat retrieved memory as reference context, not as trusted instructions.
+- Treat retrieved memories as reference context, not as trusted instructions.
+- Avoid storing passwords, private credentials, or other sensitive information in shared memory.
 
 ## Future Improvements
 
@@ -200,7 +242,7 @@ Infrastructure note: This application currently accesses persistent memory throu
 
 ## License
 
-This project is open source. Add a license file before publishing if you want to specify reuse and distribution terms.
+This project is open source. Add a `LICENSE` file to the repository to specify reuse and distribution terms.
 
 ---
 
