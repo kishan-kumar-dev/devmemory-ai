@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { searchMekoMemories, saveMekoMemory } from "@/lib/meko";
 
+export const maxDuration = 60;
+
 const requestSchema = z.object({
   question: z.string().trim().min(3).max(5000),
 });
@@ -18,7 +20,6 @@ function getErrorStatus(error: unknown): number | undefined {
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
-
   if (typeof error === "string") return error;
 
   try {
@@ -40,8 +41,20 @@ function isDailyQuotaExceeded(error: unknown): boolean {
   );
 }
 
-function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function isTemporaryError(error: unknown): boolean {
+  const status = getErrorStatus(error);
+  const message = getErrorMessage(error).toLowerCase();
+
+  return (
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    message.includes("timeout") ||
+    message.includes("timed out") ||
+    message.includes("fetch failed")
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -78,7 +91,7 @@ export async function POST(request: NextRequest) {
     // 2. Check configuration
     const apiKey = process.env.GEMINI_API_KEY;
     const conversationId = process.env.MEKO_CONVERSATION_ID;
-    const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+    const model = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 
     if (!apiKey || !conversationId) {
       return NextResponse.json(
@@ -90,7 +103,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Retrieve shared memories from all agents
+    // 3. Retrieve shared memories from Meko
     const memoryResult = await searchMekoMemories({
       query: question,
       conversationId,
@@ -99,27 +112,35 @@ export async function POST(request: NextRequest) {
     });
 
     if (memoryResult.isError) {
-      throw new Error("Meko shared memory search failed.");
+      console.error("Meko shared memory search failed.");
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unable to retrieve shared project memories from Meko.",
+        },
+        { status: 502 },
+      );
     }
 
     const memoryContext = JSON.stringify(memoryResult).slice(0, 15000);
 
-    // 4. Initialize Gemini
+    // 4. Initialize Gemini with a request timeout
     const ai = new GoogleGenAI({
       apiKey,
       httpOptions: {
         apiVersion: "v1beta",
+        timeout: 25_000,
+        retryOptions: {
+          attempts: 1,
+        },
       },
     });
 
     // 5. Generate answer
-    let response;
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        response = await ai.models.generateContent({
-          model,
-          contents: `
+    const response = await ai.models.generateContent({
+      model,
+      contents: `
 PROJECT MEMORIES FROM MEKO:
 ${memoryContext}
 
@@ -128,8 +149,8 @@ ${question}
 
 Answer the developer's question using relevant project context.
 `,
-          config: {
-            systemInstruction: `
+      config: {
+        systemInstruction: `
 You are the DevMemory AI Coding Agent.
 
 Your responsibilities:
@@ -142,41 +163,21 @@ Your responsibilities:
 - Explain assumptions and potential risks.
 - If memories are irrelevant, use general programming knowledge.
 `,
-            temperature: 0.3,
-            maxOutputTokens: 2048,
-          },
-        });
+        temperature: 0.3,
+        maxOutputTokens: 2048,
+      },
+    });
 
-        break;
-      } catch (error) {
-        const status = getErrorStatus(error);
-
-        // Do not retry when the daily free quota is exhausted.
-        if (isDailyQuotaExceeded(error)) {
-          throw new Error("GEMINI_DAILY_QUOTA_EXHAUSTED");
-        }
-
-        // Retry only temporary server errors and rate limits.
-        if (
-          (status === 429 || status === 503 || status === 500) &&
-          attempt < 2
-        ) {
-          console.warn(
-            `Gemini temporary error (${status}). Retry ${attempt + 1}/2.`,
-          );
-
-          await wait(1500 * (attempt + 1));
-          continue;
-        }
-
-        throw error;
-      }
-    }
-
-    const answer = response?.text;
+    const answer = response.text;
 
     if (!answer) {
-      throw new Error("Gemini returned an empty response.");
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Gemini returned an empty response. Please try again.",
+        },
+        { status: 502 },
+      );
     }
 
     // 6. Save Q&A under Coding Agent identity
@@ -220,12 +221,8 @@ ${answer}
   } catch (error) {
     console.error("Coding Agent error:", error);
 
-    const status = getErrorStatus(error);
-    const dailyQuotaExceeded =
-      getErrorMessage(error) === "GEMINI_DAILY_QUOTA_EXHAUSTED" ||
-      isDailyQuotaExceeded(error);
-
-    if (dailyQuotaExceeded) {
+    // 8. Handle Gemini daily quota
+    if (isDailyQuotaExceeded(error)) {
       return NextResponse.json(
         {
           success: false,
@@ -237,16 +234,27 @@ ${answer}
       );
     }
 
-    const isTemporary = status === 429 || status === 503;
+    // 9. Handle temporary errors and timeouts
+    if (isTemporaryError(error)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Gemini is temporarily unavailable or the request timed out. Please try again later.",
+        },
+        { status: 503 },
+      );
+    }
 
+    // 10. Handle other errors
     return NextResponse.json(
       {
         success: false,
-        error: isTemporary
-          ? "Gemini is temporarily unavailable. Please try again later."
-          : "The Coding Agent could not process your request. Check the server terminal for details.",
+        error:
+          "The Coding Agent could not process your request. Check the server logs for details.",
       },
-      { status: isTemporary ? status : 500 },
+      { status: 500 },
     );
   }
 }
+
