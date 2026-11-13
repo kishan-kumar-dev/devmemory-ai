@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import CodingAgentChat from "@/components/agents/coding-agent-chat";
 import BugFixAgentChat from "@/components/agents/bug-fix-agent-chat";
 import CodeReviewAgentChat from "@/components/agents/code-review-agent-chat";
+import MarkdownContent from "@/components/agents/markdown-content";
 
 type MemoryRecord = {
   id: string;
@@ -15,8 +16,7 @@ type MemoryRecord = {
 };
 
 type AgentId = "coding-agent" | "bug-fix-agent" | "code-review-agent";
-
-type AgentFilter = "all" | AgentId;
+type AgentFilter = "all" | AgentId | "other";
 type MekoStatus = "checking" | "connected" | "error";
 
 const navigation = [
@@ -63,12 +63,16 @@ const agentNames: Record<string, string> = {
   "devmemory-ai": "DevMemory Workspace",
 };
 
+function isOtherMemory(memory: MemoryRecord) {
+  return !agents.some((agent) => agent.id === memory.agent_id);
+}
+
 function extractMemories(payload: unknown): MemoryRecord[] {
   const results: MemoryRecord[] = [];
   const seen = new Set<string>();
 
   function visit(value: unknown, depth = 0) {
-    if (depth > 8 || value == null) return;
+    if (depth > 10 || value == null) return;
 
     if (typeof value === "string") {
       const trimmed = value.trim();
@@ -80,7 +84,7 @@ function extractMemories(payload: unknown): MemoryRecord[] {
         try {
           visit(JSON.parse(trimmed), depth + 1);
         } catch {
-          // Ignore non-JSON strings.
+          // Ignore strings that are not JSON.
         }
       }
 
@@ -135,6 +139,7 @@ function extractMemories(payload: unknown): MemoryRecord[] {
       "items",
       "records",
       "content",
+      "text",
     ].forEach((key) => {
       if (record[key] !== undefined) {
         visit(record[key], depth + 1);
@@ -165,7 +170,9 @@ function formatDate(date?: string) {
 }
 
 function getAgentName(agentId?: string) {
-  return agentId ? (agentNames[agentId] ?? "Shared Memory") : "Shared Memory";
+  return agentId
+    ? (agentNames[agentId] ?? "Other / Workspace")
+    : "Other / Workspace";
 }
 
 export default function Home() {
@@ -181,7 +188,6 @@ export default function Home() {
   const [searchMessage, setSearchMessage] = useState("");
 
   const [mekoStatus, setMekoStatus] = useState<MekoStatus>("checking");
-
   const [activeNav, setActiveNav] = useState("Overview");
 
   useEffect(() => {
@@ -265,6 +271,7 @@ export default function Home() {
     setIsSearching(true);
     setSearchMessage("");
     setMemories([]);
+    setMemoryFilter("all");
 
     try {
       const response = await fetch(
@@ -303,6 +310,10 @@ export default function Home() {
   const filteredMemories = useMemo(() => {
     if (memoryFilter === "all") return memories;
 
+    if (memoryFilter === "other") {
+      return memories.filter(isOtherMemory);
+    }
+
     return memories.filter((memory) => memory.agent_id === memoryFilter);
   }, [memories, memoryFilter]);
 
@@ -312,6 +323,11 @@ export default function Home() {
         ...agent,
         count: memories.filter((memory) => memory.agent_id === agent.id).length,
       })),
+    [memories],
+  );
+
+  const otherCount = useMemo(
+    () => memories.filter(isOtherMemory).length,
     [memories],
   );
 
@@ -328,6 +344,13 @@ export default function Home() {
       : mekoStatus === "error"
         ? "bg-red-400"
         : "bg-amber-400 animate-pulse";
+
+  const statusTextColor =
+    mekoStatus === "connected"
+      ? "text-emerald-300"
+      : mekoStatus === "error"
+        ? "text-red-300"
+        : "text-amber-300";
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#080c13] text-slate-100 selection:bg-cyan-400/30">
@@ -416,7 +439,9 @@ export default function Home() {
 
               <div className="mt-4 flex items-center gap-2">
                 <span className={`h-2 w-2 rounded-full ${statusColor}`} />
-                <span className="text-xs text-slate-400">{statusLabel}</span>
+                <span className={`text-xs ${statusTextColor}`}>
+                  {statusLabel}
+                </span>
               </div>
 
               <p className="mt-3 text-[10px] leading-5 text-slate-600">
@@ -444,7 +469,7 @@ export default function Home() {
         <div className="min-w-0 lg:ml-[258px]">
           {/* Header */}
           <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-[#080c13]/85 px-4 py-3 backdrop-blur-2xl sm:px-6 lg:px-9">
-            <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-3">
+            <div className="mx-auto flex max-w-[1700px] items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 font-bold text-cyan-200 lg:hidden">
                   D
@@ -473,7 +498,7 @@ export default function Home() {
 
           {/* Mobile / tablet navigation */}
           <div className="sticky top-[61px] z-20 border-b border-white/[0.06] bg-[#080c13]/95 px-3 py-2 backdrop-blur-2xl lg:hidden">
-            <nav className="mx-auto flex max-w-[1500px] gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <nav className="mx-auto flex max-w-[1700px] gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {navigation.map((item) => {
                 const active = activeNav === item.label;
 
@@ -496,7 +521,7 @@ export default function Home() {
             </nav>
           </div>
 
-          <div className="mx-auto w-full max-w-[1500px] px-4 py-7 sm:px-6 sm:py-9 lg:px-9 lg:py-10">
+          <div className="mx-auto w-full max-w-[1700px] px-4 py-7 sm:px-6 sm:py-9 lg:px-9 lg:py-10 2xl:px-12">
             {/* Hero */}
             <section id="overview" className="scroll-mt-36">
               <div className="flex flex-col justify-between gap-7 xl:flex-row xl:items-end">
@@ -591,11 +616,11 @@ export default function Home() {
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2 2xl:grid-cols-3">
-                <article className="min-w-0 overflow-hidden rounded-2xl border border-cyan-300/15 bg-[#0d1521] shadow-[0_16px_50px_rgba(0,0,0,0.18)] transition duration-300 hover:border-cyan-300/30">
-                  <div className="border-b border-white/[0.07] bg-gradient-to-r from-cyan-400/[0.09] to-transparent p-4">
+              <div className="grid min-w-0 grid-cols-1 items-start gap-6 xl:gap-8">
+                <article className="min-w-0 w-full overflow-hidden rounded-2xl border border-cyan-300/15 bg-[#0d1521] shadow-[0_16px_50px_rgba(0,0,0,0.18)] transition duration-300 hover:border-cyan-300/30">
+                  <div className="border-b border-white/[0.07] bg-gradient-to-r from-cyan-400/[0.09] to-transparent p-4 sm:p-5">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 font-mono text-sm font-bold text-cyan-200">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 font-mono text-sm font-bold text-cyan-200">
                         {"</>"}
                       </div>
                       <div className="min-w-0">
@@ -609,15 +634,15 @@ export default function Home() {
                       <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-cyan-300" />
                     </div>
                   </div>
-                  <div className="min-w-0 p-3 sm:p-4">
+                  <div className="min-w-0 w-full p-3 sm:p-5 lg:p-6">
                     <CodingAgentChat />
                   </div>
                 </article>
 
-                <article className="min-w-0 overflow-hidden rounded-2xl border border-blue-300/15 bg-[#0d1521] shadow-[0_16px_50px_rgba(0,0,0,0.18)] transition duration-300 hover:border-blue-300/30">
-                  <div className="border-b border-white/[0.07] bg-gradient-to-r from-blue-400/[0.09] to-transparent p-4">
+                <article className="min-w-0 w-full overflow-hidden rounded-2xl border border-blue-300/15 bg-[#0d1521] shadow-[0_16px_50px_rgba(0,0,0,0.18)] transition duration-300 hover:border-blue-300/30">
+                  <div className="border-b border-white/[0.07] bg-gradient-to-r from-blue-400/[0.09] to-transparent p-4 sm:p-5">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-blue-300/20 bg-blue-300/10 text-lg text-blue-200">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-300/20 bg-blue-300/10 text-lg text-blue-200">
                         ⌘
                       </div>
                       <div className="min-w-0">
@@ -631,15 +656,15 @@ export default function Home() {
                       <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-blue-300" />
                     </div>
                   </div>
-                  <div className="min-w-0 p-3 sm:p-4">
+                  <div className="min-w-0 w-full p-3 sm:p-5 lg:p-6">
                     <BugFixAgentChat />
                   </div>
                 </article>
 
-                <article className="min-w-0 overflow-hidden rounded-2xl border border-violet-300/15 bg-[#0d1521] shadow-[0_16px_50px_rgba(0,0,0,0.18)] transition duration-300 hover:border-violet-300/30 xl:col-span-2 2xl:col-span-1">
-                  <div className="border-b border-white/[0.07] bg-gradient-to-r from-violet-400/[0.09] to-transparent p-4">
+                <article className="min-w-0 w-full overflow-hidden rounded-2xl border border-violet-300/15 bg-[#0d1521] shadow-[0_16px_50px_rgba(0,0,0,0.18)] transition duration-300 hover:border-violet-300/30">
+                  <div className="border-b border-white/[0.07] bg-gradient-to-r from-violet-400/[0.09] to-transparent p-4 sm:p-5">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-violet-300/20 bg-violet-300/10 text-lg text-violet-200">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-violet-300/20 bg-violet-300/10 text-lg text-violet-200">
                         ⌥
                       </div>
                       <div className="min-w-0">
@@ -653,7 +678,7 @@ export default function Home() {
                       <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-violet-300" />
                     </div>
                   </div>
-                  <div className="min-w-0 p-3 sm:p-4">
+                  <div className="min-w-0 w-full p-3 sm:p-5 lg:p-6">
                     <CodeReviewAgentChat />
                   </div>
                 </article>
@@ -674,11 +699,11 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+              <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-2">
                 {/* Save form */}
-                <div className="rounded-2xl border border-white/[0.08] bg-[#0d1521] p-5 sm:p-6">
+                <div className="min-w-0 rounded-2xl border border-white/[0.08] bg-[#0d1521] p-5 sm:p-6">
                   <div className="mb-5 flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-300/15 bg-cyan-300/[0.08] text-xl text-cyan-200">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyan-300/15 bg-cyan-300/[0.08] text-xl text-cyan-200">
                       +
                     </div>
                     <div>
@@ -742,10 +767,10 @@ export default function Home() {
                 {/* Search form */}
                 <div
                   id="knowledge-search"
-                  className="scroll-mt-36 rounded-2xl border border-white/[0.08] bg-[#0d1521] p-5 sm:p-6"
+                  className="min-w-0 scroll-mt-36 rounded-2xl border border-white/[0.08] bg-[#0d1521] p-5 sm:p-6"
                 >
                   <div className="mb-5 flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-300/15 bg-cyan-300/[0.08] text-xl text-cyan-200">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyan-300/15 bg-cyan-300/[0.08] text-xl text-cyan-200">
                       ⌕
                     </div>
                     <div>
@@ -812,13 +837,13 @@ export default function Home() {
 
             {/* Search results */}
             {memories.length > 0 && (
-              <section className="mt-10">
+              <section className="mt-10 min-w-0 scroll-mt-36">
                 <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300">
                       Retrieved knowledge
                     </p>
-                    <h2 className="mt-2 text-xl font-bold text-white">
+                    <h2 className="mt-2 text-xl font-bold text-white sm:text-2xl">
                       Search results
                     </h2>
                     <p className="mt-1 text-xs text-slate-500">
@@ -839,6 +864,7 @@ export default function Home() {
                   </button>
                 </div>
 
+                {/* Agent filters */}
                 <div className="mb-5 flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -872,53 +898,83 @@ export default function Home() {
                       </button>
                     );
                   })}
+
+                  <button
+                    type="button"
+                    onClick={() => setMemoryFilter("other")}
+                    className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${
+                      memoryFilter === "other"
+                        ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-200"
+                        : "border-white/[0.08] bg-white/[0.02] text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    Other / Workspace ({otherCount})
+                  </button>
                 </div>
 
-                <div className="space-y-3">
+                {/* Memory cards */}
+                <div className="min-w-0 space-y-5">
                   {filteredMemories.length > 0 ? (
                     filteredMemories.map((memory, index) => (
                       <article
                         key={memory.id}
-                        className="rounded-xl border border-white/[0.07] bg-[#0d1521] p-4 transition hover:border-cyan-300/20 sm:p-5"
+                        className="min-w-0 w-full overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0d1521] shadow-[0_12px_35px_rgba(0,0,0,0.15)] transition duration-200 hover:border-cyan-300/20"
                       >
-                        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                          <div className="flex items-center gap-2">
-                            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-300/[0.09] text-[10px] font-bold text-cyan-200">
+                        {/* Memory header */}
+                        <div className="flex flex-col justify-between gap-3 border-b border-white/[0.06] px-4 py-4 sm:flex-row sm:items-center sm:px-6">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-cyan-300/10 bg-cyan-300/[0.08] text-xs font-bold text-cyan-200">
                               {String(index + 1).padStart(2, "0")}
                             </span>
-                            <span className="text-xs font-semibold text-slate-300">
-                              {getAgentName(memory.agent_id)}
-                            </span>
+
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-slate-200">
+                                {getAgentName(memory.agent_id)}
+                              </p>
+                              <p className="mt-1 text-[10px] text-slate-500">
+                                Retrieved from shared project memory
+                              </p>
+                            </div>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-3">
+                          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                             {typeof memory.score === "number" && (
-                              <span className="rounded-md border border-cyan-300/10 bg-cyan-300/[0.05] px-2 py-1 text-[10px] text-cyan-200">
+                              <span className="rounded-md border border-cyan-300/10 bg-cyan-300/[0.05] px-2.5 py-1.5 text-[10px] text-cyan-200">
                                 Score: {memory.score.toFixed(3)}
                               </span>
                             )}
-                            <span className="text-[10px] text-slate-600">
+
+                            <span className="text-[10px] text-slate-500">
                               {formatDate(memory.created_at)}
                             </span>
                           </div>
                         </div>
 
-                        <p className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-300">
-                          {memory.memory}
-                        </p>
+                        {/* Formatted memory content */}
+                        <div className="min-w-0 w-full overflow-hidden px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+                          <div className="min-w-0 w-full break-words text-sm leading-7 text-slate-300 [&_a]:break-all [&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-cyan-300/40 [&_blockquote]:pl-4 [&_code]:break-words [&_h1]:mb-4 [&_h1]:mt-7 [&_h1]:text-xl [&_h1]:font-bold [&_h1]:text-white [&_h2]:mb-3 [&_h2]:mt-7 [&_h2]:text-lg [&_h2]:font-bold [&_h2]:text-white [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-cyan-100 [&_li]:my-1 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:my-3 [&_pre]:my-5 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-white/[0.08] [&_pre]:bg-[#060b12] [&_pre]:p-4 [&_pre]:text-xs [&_pre]:leading-6 [&_strong]:font-semibold [&_strong]:text-white [&_table]:my-5 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:text-left [&_td]:border [&_td]:border-white/10 [&_td]:px-3 [&_td]:py-2 [&_th]:border [&_th]:border-white/10 [&_th]:bg-white/[0.04] [&_th]:px-3 [&_th]:py-2 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6">
+                            <MarkdownContent content={memory.memory} />
+                          </div>
+                        </div>
 
-                        <div className="mt-4 flex justify-end">
+                        {/* Memory footer */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] bg-white/[0.015] px-4 py-3 sm:px-6">
+                          <span className="text-[10px] text-slate-600">
+                            Shared project knowledge
+                          </span>
+
                           <button
                             type="button"
                             onClick={() => {
                               navigator.clipboard
                                 ?.writeText(memory.memory)
                                 .catch(() => {
-                                  // Clipboard can be unavailable.
+                                  // Clipboard may be unavailable.
                                 });
                             }}
-                            className="rounded-lg border border-white/[0.08] px-3 py-2 text-[10px] font-medium text-slate-500 transition hover:border-cyan-300/20 hover:text-cyan-200"
+                            className="inline-flex items-center gap-2 rounded-lg border border-white/[0.08] px-3 py-2 text-[10px] font-medium text-slate-400 transition hover:border-cyan-300/20 hover:bg-cyan-300/[0.05] hover:text-cyan-200"
                           >
+                            <span>▣</span>
                             Copy memory
                           </button>
                         </div>
@@ -927,7 +983,7 @@ export default function Home() {
                   ) : (
                     <div className="rounded-xl border border-dashed border-white/[0.1] px-5 py-10 text-center">
                       <p className="text-sm text-slate-400">
-                        No results for this agent in the current search.
+                        No results for this filter in the current search.
                       </p>
                       <button
                         type="button"
@@ -957,7 +1013,7 @@ export default function Home() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {agentActivity.map((agent) => (
                     <div
                       key={agent.id}
@@ -987,6 +1043,32 @@ export default function Home() {
                     </div>
                   ))}
 
+                  {/* Other / Workspace activity */}
+                  <div className="rounded-xl border border-white/[0.07] bg-[#0d1521] p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-slate-300">
+                        Other / Workspace
+                      </span>
+                      <span className="text-[10px] text-cyan-300">
+                        {otherCount} results
+                      </span>
+                    </div>
+
+                    <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-400 transition-all"
+                        style={{
+                          width: `${
+                            memories.length
+                              ? (otherCount / memories.length) * 100
+                              : 0
+                          }%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Combined results */}
                   <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.05] p-4">
                     <p className="text-xs font-medium text-slate-300">
                       Combined results

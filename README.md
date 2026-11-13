@@ -1,11 +1,15 @@
-
 # DevMemory AI
 
 ### Teach once. Remember forever. Build smarter together.
 
-DevMemory AI is a shared persistent memory platform for AI-powered coding agents. It helps multiple agents retrieve and reuse project knowledge, coding decisions, debugging context, and previous solutions instead of starting from scratch every time.
+DevMemory AI is a shared persistent memory platform for AI-powered coding agents. It enables multiple specialized agents to retrieve and reuse project knowledge, coding decisions, debugging context, and previous solutions instead of starting from scratch every time.
 
-Built with Next.js, TypeScript, Google Gemini, and the Meko MCP context engine.
+Built with Next.js, TypeScript, Google Gemini, and the Meko MCP Context Engine.
+
+<p align="center">
+  <a href="https://devmemory-ai.vercel.app/">Live Demo</a> ·
+  <a href="https://github.com/kishan-kumar-dev/devmemory-ai">GitHub Repository</a>
+</p>
 
 ---
 
@@ -16,7 +20,7 @@ Built with Next.js, TypeScript, Google Gemini, and the Meko MCP context engine.
 - Bug Fix Agent: Investigates bugs, identifies possible root causes, and recommends fixes.
 - Code Review Agent: Reviews code for bugs, security issues, performance, and maintainability.
 - Agent Attribution: Store memories with agent-specific identities.
-- Semantic Search: Retrieve relevant memories based on the meaning of a query.
+- Semantic Search: Retrieve relevant memories based on query meaning.
 - Modern Dashboard: Manage agents and explore shared project memory.
 - Responsive Interface: Access the dashboard across desktop, tablet, and mobile devices.
 
@@ -35,43 +39,45 @@ Built with Next.js, TypeScript, Google Gemini, and the Meko MCP context engine.
 ## Architecture
 
 ```text
-                    DevMemory AI
-                         |
-                  Next.js Dashboard
-                         |
-            +------------+------------+
-            |            |            |
-       Coding Agent  Bug Fix Agent  Code Review Agent
-            |            |            |
-            +------------+------------+
-                         |
-                    Meko MCP
-                         |
-              Shared Persistent Memory
-                         |
-             Search, Save and Retrieve
-                    Project Context
+                       DevMemory AI
+                            |
+                     Next.js Dashboard
+                            |
+             +--------------+--------------+
+             |              |              |
+        Coding Agent   Bug Fix Agent   Code Review Agent
+             |              |              |
+             +--------------+--------------+
+                            |
+                         Meko MCP
+                            |
+                 Shared Persistent Memory
+                            |
+                 Search, Save and Retrieve
+                     Project Context
 ```
 
-### How It Works
+## How It Works
 
 1. A user submits a question, bug report, or code sample.
-2. The relevant agent searches Meko for related project memories.
+2. The selected agent searches Meko for relevant project memories.
 3. Retrieved context is included in the agent's AI request.
 4. Google Gemini generates a response using the available context.
 5. The agent saves useful question-and-answer context to Meko under its own identity.
-6. Other agents can retrieve relevant shared knowledge later.
+6. Other agents can retrieve relevant shared knowledge in future interactions.
 
-### Memory Attribution
+## Memory Attribution
 
 DevMemory AI uses the following agent identities:
 
-- `devmemory-ai`
-- `coding-agent`
-- `bug-fix-agent`
-- `code-review-agent`
+| Agent | Identity |
+|---|---|
+| Main application | `devmemory-ai` |
+| Coding Agent | `coding-agent` |
+| Bug Fix Agent | `bug-fix-agent` |
+| Code Review Agent | `code-review-agent` |
 
-All agents can retrieve relevant shared memories while newly saved memories retain their originating agent identity.
+Agents can retrieve relevant shared memories while newly saved memories retain their originating agent identity.
 
 ## Getting Started
 
@@ -79,8 +85,8 @@ All agents can retrieve relevant shared memories while newly saved memories reta
 
 - Node.js 20.9 or later
 - npm
-- A Meko API key and MCP endpoint
-- A Google Gemini API key
+- Meko API key and MCP endpoint
+- Google Gemini API key
 
 ### 1. Clone the Repository
 
@@ -105,7 +111,7 @@ MEKO_MCP_URL=https://mcp.mekodata.ai/mcp
 MEKO_CONVERSATION_ID=your_meko_conversation_id
 
 GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MODEL=gemini-3.5-flash-lite
 ```
 
 Replace the placeholder values with your own credentials and Meko conversation ID.
@@ -142,27 +148,27 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ## Shared Memory Workflow
 
 ```text
-       User Request
-             |
-             v
-       Select AI Agent
-             |
-             v
-      Search Meko Memory
-             |
-             v
-     Retrieve Relevant Context
-             |
-             v
-      Generate Gemini Response
-             |
-             v
-       Save Useful Knowledge
-             |
-             v
+         User Request
+              |
+              v
+         Select AI Agent
+              |
+              v
+        Search Meko Memory
+              |
+              v
+      Retrieve Relevant Context
+              |
+              v
+       Generate Gemini Response
+              |
+              v
+        Save Useful Knowledge
+              |
+              v
       Shared Persistent Memory
-             |
-             v
+              |
+              v
        Available to Other Agents
 ```
 
@@ -204,23 +210,21 @@ Invoke-RestMethod -Uri "http://localhost:3000/api/meko/memories?query=Next.js%20
 
 ## Deployment
 
-The application can be deployed on Vercel.
+The application can be deployed using Vercel.
 
 1. Push the project to GitHub.
 2. Import the repository into Vercel.
 3. Configure the required environment variables in Vercel Project Settings.
 4. Deploy the application.
-5. Open the deployed URL and verify the Meko connection.
+5. Open the deployed URL and verify the Meko connection and agent functionality.
 
 Live Demo: https://devmemory-ai.vercel.app/
 
 GitHub Repository: https://github.com/kishan-kumar-dev/devmemory-ai
 
-
-
 ## Infrastructure Note
 
-This application currently accesses persistent memory through the Meko MCP context engine. It does not implement a separate direct YugabyteDB client connection.
+This application accesses persistent memory through the Meko MCP Context Engine. It does not currently implement a separate direct YugabyteDB client connection.
 
 ## Security
 
@@ -233,16 +237,16 @@ This application currently accesses persistent memory through the Meko MCP conte
 
 ## Future Improvements
 
-- More specialized development agents.
+- Additional specialized development agents.
 - Better cross-agent memory visualization.
-- Memory ranking and relevance improvements.
+- Improved memory ranking and relevance.
 - Agent activity and decision tracing.
 - Comprehensive automated tests.
 - Improved error handling and quota management.
 
 ## License
 
-This project is open source. Add a `LICENSE` file to the repository to specify reuse and distribution terms.
+No license has been specified yet. Add a `LICENSE` file to the repository to define reuse and distribution terms.
 
 ---
 

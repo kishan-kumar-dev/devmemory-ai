@@ -1,6 +1,7 @@
 ﻿"use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import MarkdownContent from "@/components/agents/markdown-content";
 
 type Message = {
   role: "user" | "assistant";
@@ -13,6 +14,15 @@ export default function CodingAgentChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "end",
+    });
+  }, [messages, loading]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -33,9 +43,7 @@ export default function CodingAgentChat() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          question: prompt,
-        }),
+        body: JSON.stringify({ question: prompt }),
       });
 
       const data = await response.json();
@@ -66,118 +74,154 @@ export default function CodingAgentChat() {
   }
 
   return (
-    <section className="mb-8 overflow-hidden rounded-2xl border border-violet-400/20 bg-[#101525]/95">
+    <section className="mb-8 w-full min-w-0 overflow-hidden rounded-2xl border border-violet-400/20 bg-[#101525]/95 shadow-xl shadow-black/20">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.07] p-5">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 p-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/25 to-blue-500/20 text-xl text-violet-200">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/25 to-blue-500/20 text-xl font-bold text-violet-200">
             {"</>"}
           </div>
 
           <div>
-            <h3 className="text-sm font-semibold">Coding Agent</h3>
-            <p className="mt-1 text-xs text-slate-500">
+            <h3 className="text-base font-semibold text-white">Coding Agent</h3>
+            <p className="mt-1 text-xs text-slate-400">
               Gemini AI + Meko shared memory
             </p>
           </div>
         </div>
 
-        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-[10px] font-medium text-emerald-300">
-          API connected
+        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-300">
+          ● API connected
         </span>
-      </div>
+      </header>
 
-      {/* Chat messages */}
-      <div className="min-h-48 max-h-[480px] space-y-4 overflow-y-auto p-5">
+      {/* Conversation */}
+      <div className="min-h-64 max-h-[75vh] space-y-6 overflow-y-auto overscroll-contain p-4 sm:p-6">
         {messages.length === 0 && !loading && (
-          <div className="flex min-h-40 flex-col items-center justify-center text-center">
-            <div className="mb-3 text-3xl text-violet-300">✦</div>
+          <div className="flex min-h-56 flex-col items-center justify-center text-center">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-violet-400/20 bg-violet-400/10 text-3xl text-violet-300">
+              ✦
+            </div>
 
-            <p className="text-sm font-medium text-slate-200">
-              Ask your Coding Agent
-            </p>
+            <h4 className="text-lg font-semibold text-white">
+              Meet your Coding Agent
+            </h4>
 
-            <p className="mt-2 max-w-sm text-xs leading-5 text-slate-500">
-              Ask coding questions. The agent retrieves relevant project
-              memories from Meko before generating its answer.
+            <p className="mt-2 max-w-md text-sm leading-6 text-slate-400">
+              Ask questions about React, Next.js, TypeScript, debugging,
+              architecture, and implementation. Your agent retrieves relevant
+              shared project memories before generating an answer.
             </p>
           </div>
         )}
 
         {messages.map((message, index) => (
-          <div
+          <article
             key={`${message.role}-${index}`}
-            className={`flex ${
-              message.role === "user" ? "justify-end" : "justify-start"
+            className={`min-w-0 w-full ${
+              message.role === "user" ? "flex justify-end" : "block"
             }`}
           >
-            <div
-              className={`max-w-[90%] rounded-2xl px-4 py-3 sm:max-w-[80%] ${
-                message.role === "user"
-                  ? "bg-violet-600/20 text-violet-100"
-                  : "border border-white/[0.07] bg-[#0B1020] text-slate-200"
-              }`}
-            >
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                {message.role === "user" ? "You" : "Coding Agent"}
-              </p>
-
-              <p className="whitespace-pre-wrap text-sm leading-6">
-                {message.content}
-              </p>
-
-              {message.role === "assistant" && (
-                <p className="mt-3 border-t border-white/[0.07] pt-2 text-[10px] text-slate-500">
-                  {message.memorySaved === true
-                    ? "✓ Saved to shared Meko memory"
-                    : message.memorySaved === false
-                      ? "⚠ Answer generated, but memory was not saved"
-                      : "Generated using shared project context"}
+            {message.role === "user" ? (
+              <div className="max-w-[95%] rounded-2xl rounded-br-md border border-violet-400/20 bg-violet-500/15 px-4 py-3 sm:max-w-[80%]">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-violet-300">
+                  You
                 </p>
-              )}
-            </div>
-          </div>
+                <p className="whitespace-pre-wrap break-words text-sm leading-7 text-violet-50">
+                  {message.content}
+                </p>
+              </div>
+            ) : (
+              <div className="w-full min-w-0 rounded-2xl border border-white/10 bg-[#0B1020] p-4 sm:p-6">
+                <div className="mb-5 flex items-center gap-2 border-b border-white/10 pb-4">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/15 text-sm text-violet-300">
+                    ✦
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      Coding Agent
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      AI-generated response
+                    </p>
+                  </div>
+                </div>
+
+                {/* Full-width Markdown response */}
+                <div className="w-full min-w-0">
+                  <MarkdownContent content={message.content} />
+                </div>
+
+                <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-white/10 pt-4">
+                  <span
+                    className={`text-xs ${
+                      message.memorySaved === true
+                        ? "text-emerald-400"
+                        : message.memorySaved === false
+                          ? "text-amber-400"
+                          : "text-slate-500"
+                    }`}
+                  >
+                    {message.memorySaved === true
+                      ? "✓ Saved to shared Meko memory"
+                      : message.memorySaved === false
+                        ? "⚠ Answer generated, but memory was not saved"
+                        : "Generated using shared project context"}
+                  </span>
+                </div>
+              </div>
+            )}
+          </article>
         ))}
 
         {loading && (
-          <div className="rounded-xl border border-violet-400/10 bg-[#0B1020] p-4 text-xs text-violet-200">
-            <span className="animate-pulse">
+          <div className="flex items-center gap-3 rounded-xl border border-violet-400/15 bg-violet-400/5 p-4">
+            <div className="h-2 w-2 animate-pulse rounded-full bg-violet-400" />
+            <p className="text-sm text-violet-200">
               Searching shared memory and generating an answer...
-            </span>
+            </p>
           </div>
         )}
 
         {error && (
           <div
             role="alert"
-            className="rounded-xl border border-red-400/20 bg-red-400/[0.06] p-3 text-xs text-red-300"
+            className="rounded-xl border border-red-400/20 bg-red-400/10 p-4 text-sm text-red-300"
           >
             {error}
           </div>
         )}
+
+        <div ref={messagesEndRef} />
       </div>
 
-      {/* Question input */}
+      {/* Input */}
       <form
         onSubmit={handleSubmit}
-        className="flex flex-col gap-3 border-t border-white/[0.07] p-4 sm:flex-row"
+        className="border-t border-white/10 bg-[#0D1322] p-4 sm:p-5"
       >
-        <input
-          value={question}
-          onChange={(event) => setQuestion(event.target.value)}
-          placeholder="Ask a coding question..."
-          maxLength={5000}
-          disabled={loading}
-          className="min-w-0 flex-1 rounded-xl border border-white/10 bg-[#0B1020] px-4 py-3 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-violet-400/50 disabled:opacity-50"
-        />
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <input
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder="Ask your coding question..."
+            maxLength={5000}
+            disabled={loading}
+            className="min-w-0 flex-1 rounded-xl border border-white/10 bg-[#101525] px-4 py-3.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400/50 disabled:opacity-50"
+          />
 
-        <button
-          type="submit"
-          disabled={loading || question.trim().length < 3}
-          className="rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-6 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {loading ? "Thinking..." : "Ask Agent →"}
-        </button>
+          <button
+            type="submit"
+            disabled={loading || question.trim().length < 3}
+            className="rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-6 py-3.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? "Thinking..." : "Ask Agent →"}
+          </button>
+        </div>
+
+        <p className="mt-3 text-center text-[11px] text-slate-500">
+          Powered by Gemini AI · Persistent knowledge by Meko
+        </p>
       </form>
     </section>
   );

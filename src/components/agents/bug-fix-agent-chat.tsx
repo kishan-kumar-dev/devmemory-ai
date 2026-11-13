@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import MarkdownContent from "@/components/agents/markdown-content";
 
 type Message = {
   role: "user" | "assistant";
@@ -21,9 +22,7 @@ export default function BugFixAgentChat() {
 
     const description = bugDescription.trim();
 
-    if (description.length < 3 || loading) {
-      return;
-    }
+    if (description.length < 3 || loading) return;
 
     const submittedError = errorMessage.trim();
     const submittedCode = relevantCode.trim();
@@ -32,7 +31,11 @@ export default function BugFixAgentChat() {
       ...previous,
       {
         role: "user",
-        content: [description, submittedError ? `Error: ${submittedError}` : ""]
+        content: [
+          description,
+          submittedError ? `Error message:\n${submittedError}` : "",
+          submittedCode ? `Relevant code:\n${submittedCode}` : "",
+        ]
           .filter(Boolean)
           .join("\n\n"),
       },
@@ -85,13 +88,19 @@ export default function BugFixAgentChat() {
   }
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-[#111827] p-5 shadow-xl">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-white">Bug Fix Agent</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Gemini AI + Meko shared memory
-          </p>
+    <section className="w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-[#111827] shadow-xl">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 p-5 sm:p-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-500/10 text-2xl">
+            🛠️
+          </div>
+
+          <div>
+            <h2 className="text-lg font-semibold text-white">Bug Fix Agent</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Gemini AI + Meko shared memory
+            </p>
+          </div>
         </div>
 
         <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
@@ -99,49 +108,63 @@ export default function BugFixAgentChat() {
         </span>
       </div>
 
-      <div className="mb-5 min-h-40 space-y-4 rounded-xl border border-white/5 bg-[#0B1020] p-4">
-        {messages.length === 0 && (
-          <div className="flex min-h-32 flex-col items-center justify-center text-center">
-            <div className="mb-3 text-3xl">🐛</div>
-            <p className="text-sm font-medium text-slate-300">
+      <div className="w-full min-w-0 space-y-6 p-4 sm:p-6">
+        {messages.length === 0 && !loading && (
+          <div className="flex min-h-40 flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-[#0B1020] px-5 py-8 text-center">
+            <span className="mb-3 text-3xl">🐛</span>
+            <h3 className="text-sm font-semibold text-slate-200">
               Describe a bug to get started
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              The agent will search shared memory and suggest a fix.
+            </h3>
+            <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
+              The agent searches shared memory and uses project context to
+              analyze the issue and suggest a solution.
             </p>
           </div>
         )}
 
         {messages.map((message, index) => (
-          <div
+          <article
             key={`${message.role}-${index}`}
-            className={`max-w-[95%] rounded-xl p-3 ${
+            className={`w-full min-w-0 rounded-2xl border p-4 sm:p-6 ${
               message.role === "user"
-                ? "ml-auto bg-violet-500/15 text-violet-100"
-                : "mr-auto border border-white/10 bg-white/5 text-slate-200"
+                ? "border-violet-400/20 bg-violet-500/[0.07]"
+                : "border-white/10 bg-[#0B1020]"
             }`}
           >
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              {message.role === "user" ? "You" : "Bug Fix Agent"}
-            </p>
+            <div className="mb-4 flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/5 text-sm">
+                {message.role === "user" ? "👤" : "🤖"}
+              </span>
 
-            <div className="whitespace-pre-wrap break-words text-sm leading-6">
-              {message.content}
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                {message.role === "user" ? "You" : "Bug Fix Agent"}
+              </p>
             </div>
+
+            {message.role === "assistant" ? (
+              <MarkdownContent content={message.content} />
+            ) : (
+              <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-slate-200">
+                {message.content}
+              </pre>
+            )}
 
             {message.role === "assistant" &&
               message.memorySaved !== undefined && (
-                <p className="mt-3 border-t border-white/10 pt-2 text-xs text-slate-400">
-                  {message.memorySaved
-                    ? "✓ Saved to shared Meko memory"
-                    : "⚠ Response was not saved to shared memory"}
-                </p>
+                <div className="mt-5 border-t border-white/10 pt-3">
+                  <p className="text-xs text-slate-400">
+                    {message.memorySaved
+                      ? "✓ Saved to shared Meko memory"
+                      : "⚠ Response was not saved to shared memory"}
+                  </p>
+                </div>
               )}
-          </div>
+          </article>
         ))}
 
         {loading && (
-          <div className="mr-auto rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-400">
+          <div className="flex items-center gap-3 rounded-xl border border-violet-400/20 bg-violet-400/5 p-4 text-sm text-violet-200">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-violet-400" />
             Searching shared memory and analyzing the bug...
           </div>
         )}
@@ -150,56 +173,88 @@ export default function BugFixAgentChat() {
       {error && (
         <div
           role="alert"
-          className="mb-4 rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-300"
+          className="mx-4 mb-4 rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-300 sm:mx-6"
         >
           {error}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <textarea
-          value={bugDescription}
-          onChange={(event) => setBugDescription(event.target.value)}
-          placeholder="Describe the bug or unexpected behavior..."
-          maxLength={5000}
-          required
-          rows={3}
-          disabled={loading}
-          className="w-full resize-y rounded-xl border border-white/10 bg-[#0B1020] px-4 py-3 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-violet-400/50 disabled:opacity-50"
-        />
+      <div className="border-t border-white/10 bg-[#0D1422] p-4 sm:p-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label
+              htmlFor="bug-description"
+              className="mb-2 block text-sm font-medium text-slate-300"
+            >
+              Bug description
+            </label>
 
-        <textarea
-          value={errorMessage}
-          onChange={(event) => setErrorMessage(event.target.value)}
-          placeholder="Error message (optional)..."
-          maxLength={5000}
-          rows={2}
-          disabled={loading}
-          className="w-full resize-y rounded-xl border border-white/10 bg-[#0B1020] px-4 py-3 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-violet-400/50 disabled:opacity-50"
-        />
+            <textarea
+              id="bug-description"
+              value={bugDescription}
+              onChange={(event) => setBugDescription(event.target.value)}
+              placeholder="Describe the bug or unexpected behavior..."
+              maxLength={5000}
+              required
+              rows={4}
+              disabled={loading}
+              className="w-full resize-y rounded-xl border border-white/10 bg-[#0B1020] px-4 py-3 text-sm leading-6 text-slate-200 outline-none transition placeholder:text-slate-600 focus:border-violet-400/50 disabled:opacity-50"
+            />
+          </div>
 
-        <textarea
-          value={relevantCode}
-          onChange={(event) => setRelevantCode(event.target.value)}
-          placeholder="Paste relevant code (optional)..."
-          maxLength={10000}
-          rows={4}
-          disabled={loading}
-          className="w-full resize-y rounded-xl border border-white/10 bg-[#0B1020] px-4 py-3 font-mono text-xs text-slate-200 outline-none placeholder:text-slate-600 focus:border-violet-400/50 disabled:opacity-50"
-        />
+          <div>
+            <label
+              htmlFor="bug-error-message"
+              className="mb-2 block text-sm font-medium text-slate-300"
+            >
+              Error message <span className="text-slate-500">(optional)</span>
+            </label>
 
-        <button
-          type="submit"
-          disabled={loading || bugDescription.trim().length < 3}
-          className="w-full rounded-xl bg-violet-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {loading ? "Analyzing bug..." : "Analyze & Fix Bug"}
-        </button>
-      </form>
+            <textarea
+              id="bug-error-message"
+              value={errorMessage}
+              onChange={(event) => setErrorMessage(event.target.value)}
+              placeholder="Paste the error message here..."
+              maxLength={5000}
+              rows={3}
+              disabled={loading}
+              className="w-full resize-y rounded-xl border border-white/10 bg-[#0B1020] px-4 py-3 text-sm leading-6 text-slate-200 outline-none transition placeholder:text-slate-600 focus:border-violet-400/50 disabled:opacity-50"
+            />
+          </div>
 
-      <p className="mt-3 text-center text-xs text-slate-500">
-        Powered by Gemini AI and Meko persistent shared memory
-      </p>
+          <div>
+            <label
+              htmlFor="bug-relevant-code"
+              className="mb-2 block text-sm font-medium text-slate-300"
+            >
+              Relevant code <span className="text-slate-500">(optional)</span>
+            </label>
+
+            <textarea
+              id="bug-relevant-code"
+              value={relevantCode}
+              onChange={(event) => setRelevantCode(event.target.value)}
+              placeholder="Paste the relevant code here..."
+              maxLength={10000}
+              rows={7}
+              disabled={loading}
+              className="w-full resize-y rounded-xl border border-white/10 bg-[#0B1020] px-4 py-3 font-mono text-xs leading-6 text-slate-200 outline-none transition placeholder:text-slate-600 focus:border-violet-400/50 disabled:opacity-50"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading || bugDescription.trim().length < 3}
+            className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-6 py-3.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? "Analyzing bug..." : "Analyze & Fix Bug"}
+          </button>
+        </form>
+
+        <p className="mt-4 text-center text-xs text-slate-500">
+          Powered by Gemini AI and Meko persistent shared memory
+        </p>
+      </div>
     </section>
   );
 }
